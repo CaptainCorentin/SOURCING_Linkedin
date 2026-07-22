@@ -90,15 +90,23 @@ function computeContactable(record) {
   return { contactable: reasons.length === 0, reasons };
 }
 
-function generateMessage({ fullName, poste, entreprise }) {
+function generateMessage({ fullName }) {
   const firstName = (fullName || "").trim().split(/\s+/)[0] || "";
-  const posteText = poste ? ` de ${poste}` : "";
-  const entrepriseText = entreprise ? ` chez ${entreprise}` : "";
-  return `Bonjour ${firstName},
+  return `Hello ${firstName},
 
-J'ai découvert votre profil${posteText}${entrepriseText} et j'aimerais échanger avec vous sur une opportunité qui pourrait vous intéresser.
+Pour aller droit au but, j'adore ton parcours, et je cherche une pépite du Produit comme toi pour rejoindre WeFiiT pour un poste de Consultant en Product Management.
 
-Seriez-vous disponible pour un rapide échange cette semaine ?
+Le projet ? WeFiiT c'est un modèle hybride entre le cabinet de conseil & la startup : c'est un des leaders du Product Management en France. Un environnement ultra dynamique, tu auras de belles perspectives de croissance dans une entreprise qui est déjà dans le top 3 des cabinets spécialisés en Product Management et qui vise à en devenir LA référence.
 
-Bien à vous,`;
+Avec qui ? Une équipe de 100 WeFiiters (équipe désormais à 114 experts), ambitieux, inspirants et experts dans leur domaine.
+
+Ton objectif ? Accompagner nos clients grands comptes (Chanel, Kering, Accor, Cartier, FDJ, SNCF, Louis Vuitton...) mais aussi nos scale-ups dans le développement de leurs projets digitaux.
+
+Ce job est fait pour toi si :
+📈 Tu cherches un projet ambitieux qui sera un réel tremplin chez des clients prestigieux
+🏦 Tu veux participer à un projet ayant un potentiel de marché gigantesque
+🚀 Tu veux être entourée de personnes expertes et inspirantes
+💰 Tu veux un package super compétitif €
+
+Es-tu disponible 15 minutes pour en discuter de vive voix ?`;
 }
