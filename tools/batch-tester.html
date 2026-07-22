@@ -154,10 +154,11 @@
 
 <div class="import-box">
   <label style="font-size:12px; font-weight:700; display:block; margin-bottom:6px;">
-    Import rapide (une ligne par profil, séparé par des <code>;</code> — Prénom;Nom;URL LinkedIn;Statut)
+    Import rapide (une ligne par profil, séparé par des <code>;</code>) — ordre :<br/>
+    Prénom;Nom;URL LinkedIn;Statut;Contact&lt;1mois;PasIntéressé&lt;4mois;Process&lt;1an;RappelFutur;FinProcessCandidat
   </label>
-  <textarea id="import-textarea" placeholder="Chloé;Gevrey;https://www.linkedin.com/in/chloe-gevrey;P+
-Elias;Ghali;https://www.linkedin.com/in/elias-ghali;LN+ (vivier)"></textarea>
+  <textarea id="import-textarea" placeholder="Chloé;Gevrey;https://www.linkedin.com/in/chloe-gevrey;P+;15/06/2026;;;;
+Elias;Ghali;https://www.linkedin.com/in/elias-ghali;LN+ (vivier);;;22/03/2025;;non"></textarea>
   <div class="toolbar" style="margin-top:8px;">
     <button class="btn btn-secondary" id="import-btn">Ajouter ces lignes au tableau</button>
   </div>
@@ -174,13 +175,17 @@ Elias;Ghali;https://www.linkedin.com/in/elias-ghali;LN+ (vivier)"></textarea>
 <table>
   <thead>
     <tr>
-      <th style="width:110px;">Prénom</th>
-      <th style="width:110px;">Nom</th>
-      <th style="width:220px;">URL LinkedIn</th>
-      <th style="width:130px;">Statut (manuel)</th>
-      <th style="width:160px;">Notes / autres critères (manuel)</th>
+      <th style="width:100px;">Prénom</th>
+      <th style="width:100px;">Nom</th>
+      <th style="width:190px;">URL LinkedIn</th>
+      <th style="width:120px;">Statut (manuel)</th>
+      <th style="width:120px;">Date dernier contact (manuel)</th>
+      <th style="width:120px;">Date "pas intéressé" (manuel)</th>
+      <th style="width:120px;">Date dernier process (manuel)</th>
+      <th style="width:120px;">Rappel futur prévu ? (manuel)</th>
+      <th style="width:110px;">Fin process à l'initiative du candidat ? (manuel)</th>
       <th style="width:70px;">Envoi</th>
-      <th style="width:260px;">Réponse N8N</th>
+      <th style="width:220px;">Réponse N8N</th>
       <th style="width:40px;"></th>
     </tr>
   </thead>
@@ -239,8 +244,8 @@ function saveSettings() {
   }));
 }
 
-function newRow(prenom = "", nom = "", url = "", statut = "", notes = "") {
-  return { prenom, nom, url, statut, notes, status: "idle", response: "" };
+function newRow(prenom = "", nom = "", url = "", statut = "", contact1Mois = "", pasInteresse4Mois = "", process1An = "", rappelFutur = "", finProcessCandidat = "") {
+  return { prenom, nom, url, statut, contact1Mois, pasInteresse4Mois, process1An, rappelFutur, finProcessCandidat, status: "idle", response: "" };
 }
 
 function render() {
@@ -253,7 +258,11 @@ function render() {
     tr.appendChild(makeInputCell(row, i, "nom"));
     tr.appendChild(makeInputCell(row, i, "url"));
     tr.appendChild(makeInputCell(row, i, "statut", "statut-options"));
-    tr.appendChild(makeInputCell(row, i, "notes"));
+    tr.appendChild(makeInputCell(row, i, "contact1Mois", null, "JJ/MM/AAAA"));
+    tr.appendChild(makeInputCell(row, i, "pasInteresse4Mois", null, "JJ/MM/AAAA"));
+    tr.appendChild(makeInputCell(row, i, "process1An", null, "JJ/MM/AAAA"));
+    tr.appendChild(makeInputCell(row, i, "rappelFutur", null, "oui / non / date"));
+    tr.appendChild(makeInputCell(row, i, "finProcessCandidat", null, "oui / non"));
 
     const statusTd = document.createElement("td");
     const badge = document.createElement("span");
@@ -296,12 +305,13 @@ function render() {
   });
 }
 
-function makeInputCell(row, i, field, listId) {
+function makeInputCell(row, i, field, listId, placeholder) {
   const td = document.createElement("td");
   const input = document.createElement("input");
   input.type = "text";
-  input.value = row[field];
+  input.value = row[field] || "";
   if (listId) input.setAttribute("list", listId);
+  if (placeholder) input.setAttribute("placeholder", placeholder);
   input.addEventListener("input", () => {
     rows[i][field] = input.value;
     saveRows();
@@ -358,8 +368,12 @@ document.getElementById("add-row-btn").addEventListener("click", () => {
 document.getElementById("import-btn").addEventListener("click", () => {
   const text = document.getElementById("import-textarea").value;
   text.split("\n").map(l => l.trim()).filter(Boolean).forEach(line => {
-    const [prenom = "", nom = "", url = "", statut = ""] = line.split(";").map(s => s.trim());
-    rows.push(newRow(prenom, nom, url, statut));
+    const [
+      prenom = "", nom = "", url = "", statut = "",
+      contact1Mois = "", pasInteresse4Mois = "", process1An = "",
+      rappelFutur = "", finProcessCandidat = ""
+    ] = line.split(";").map(s => s.trim());
+    rows.push(newRow(prenom, nom, url, statut, contact1Mois, pasInteresse4Mois, process1An, rappelFutur, finProcessCandidat));
   });
   document.getElementById("import-textarea").value = "";
   saveRows();
