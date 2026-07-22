@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Batch Tester — Sourcing LinkedIn / N8N</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f2f5ff;
+    color: #14213d;
+    padding: 20px;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .hint { font-size: 12px; color: #5a6484; margin: 0 0 16px; }
+
+  details.settings {
+    background: white;
+    border: 1px solid #e2e6f2;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    max-width: 900px;
+  }
+  details.settings summary { font-weight: 700; cursor: pointer; color: #002882; }
+  .settings-row { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+  .settings-row label { display: flex; flex-direction: column; font-size: 12px; font-weight: 600; gap: 4px; flex: 1; min-width: 200px; }
+  .settings-row input { padding: 6px 8px; border: 1px solid #c9d2ec; border-radius: 6px; font-size: 13px; }
+
+  .import-box {
+    background: white;
+    border: 1px solid #e2e6f2;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    max-width: 900px;
+  }
+  .import-box textarea {
+    width: 100%;
+    height: 70px;
+    font-family: "Courier New", monospace;
+    font-size: 12px;
+    padding: 6px 8px;
+    border: 1px solid #c9d2ec;
+    border-radius: 6px;
+    resize: vertical;
+  }
+
+  .btn {
+    border: none;
+    border-radius: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-primary { background: #f98f03; color: white; }
+  .btn-primary:hover { background: #e8572a; }
+  .btn-secondary { background: white; color: #002882; border: 1px solid #c9d2ec; }
+  .btn-secondary:hover { background: #f2f5ff; }
+  .btn-small { padding: 3px 8px; font-size: 11px; }
+  .btn-danger { background: #fdece9; color: #c62828; border: 1px solid #f6c9c2; }
+
+  .toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  th, td {
+    border-bottom: 1px solid #eceef5;
+    padding: 6px 8px;
+    font-size: 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #002882;
+    color: white;
+    position: sticky;
+    top: 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  td input {
+    width: 100%;
+    border: 1px solid transparent;
+    padding: 4px 6px;
+    font-size: 12px;
+    border-radius: 4px;
+    background: transparent;
+    font-family: inherit;
+  }
+  td input:focus { border-color: #c9d2ec; background: #f2f5ff; outline: none; }
+
+  .status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .status-idle { background: #e9eaf0; color: #47517a; }
+  .status-loading { background: #fff4e0; color: #b06a00; }
+  .status-ok { background: #e7f8ee; color: #157a3d; }
+  .status-error { background: #fdece9; color: #c62828; }
+
+  .response-cell { max-width: 320px; }
+  .response-cell pre {
+    margin: 4px 0 0;
+    max-height: 140px;
+    overflow: auto;
+    background: #14213d;
+    color: #dfe6fb;
+    font-size: 10px;
+    padding: 6px;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .response-cell.hidden pre { display: none; }
+
+  .col-actions { white-space: nowrap; }
+
+  #wrapper { overflow-x: auto; max-width: 100%; }
+</style>
+</head>
+<body>
+
+<h1>Batch Tester — Sourcing LinkedIn / N8N</h1>
+<p class="hint">Outil de dev interne, hors extension. Sert à envoyer plusieurs profils LinkedIn d'un coup vers le webhook N8N, et à noter les critères observés manuellement dans Boond pour les comparer aux données renvoyées par l'API.</p>
+
+<details class="settings">
+  <summary>⚙️ Connexion N8N</summary>
+  <div class="settings-row">
+    <label>URL du webhook (Production recommandée pour le lot)
+      <input type="text" id="n8n-url" placeholder="https://wefiit.app.n8n.cloud/webhook/check-linkedin-profile" />
+    </label>
+    <label>Utilisateur (Basic Auth)
+      <input type="text" id="n8n-user" autocomplete="off" />
+    </label>
+    <label>Mot de passe (Basic Auth)
+      <input type="password" id="n8n-pass" autocomplete="off" />
+    </label>
+  </div>
+</details>
+
+<div class="import-box">
+  <label style="font-size:12px; font-weight:700; display:block; margin-bottom:6px;">
+    Import rapide (une ligne par profil, séparé par des <code>;</code> — Prénom;Nom;URL LinkedIn;Statut)
+  </label>
+  <textarea id="import-textarea" placeholder="Chloé;Gevrey;https://www.linkedin.com/in/chloe-gevrey;P+
+Elias;Ghali;https://www.linkedin.com/in/elias-ghali;LN+ (vivier)"></textarea>
+  <div class="toolbar" style="margin-top:8px;">
+    <button class="btn btn-secondary" id="import-btn">Ajouter ces lignes au tableau</button>
+  </div>
+</div>
+
+<div class="toolbar">
+  <button class="btn btn-secondary" id="add-row-btn">+ Ajouter une ligne vide</button>
+  <button class="btn btn-primary" id="send-all-btn">🔗 Envoyer toutes les lignes à N8N</button>
+  <button class="btn btn-secondary" id="copy-json-btn">📋 Copier tout en JSON</button>
+  <button class="btn btn-danger" id="clear-btn">🗑️ Vider le tableau</button>
+</div>
+
+<div id="wrapper">
+<table>
+  <thead>
+    <tr>
+      <th style="width:110px;">Prénom</th>
+      <th style="width:110px;">Nom</th>
+      <th style="width:220px;">URL LinkedIn</th>
+      <th style="width:130px;">Statut (manuel)</th>
+      <th style="width:160px;">Notes / autres critères (manuel)</th>
+      <th style="width:70px;">Envoi</th>
+      <th style="width:260px;">Réponse N8N</th>
+      <th style="width:40px;"></th>
+    </tr>
+  </thead>
+  <tbody id="rows-body"></tbody>
+</table>
+</div>
+
+<datalist id="statut-options">
+  <option value="A traiter">
+  <option value="Pré-qualification">
+  <option value="E1">
+  <option value="E2">
+  <option value="E3">
+  <option value="Propale à faire">
+  <option value="ADR">
+  <option value="Signature">
+  <option value="Recruté(e) - converti en Ressource boond">
+  <option value="EM">
+  <option value="P+">
+  <option value="Vivier +++">
+  <option value="LN+ (vivier)">
+  <option value="Vivier Staff">
+  <option value="KO">
+  <option value="LN-">
+  <option value="NDPS">
+  <option value="Free ++">
+</datalist>
+
+<script>
+const STORAGE_KEY = "batchTesterRows";
+const SETTINGS_KEY = "batchTesterSettings";
+
+let rows = [];
+
+function load() {
+  try {
+    rows = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+  } catch (e) {
+    rows = [];
+  }
+  const settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+  document.getElementById("n8n-url").value = settings.url || "";
+  document.getElementById("n8n-user").value = settings.user || "";
+  document.getElementById("n8n-pass").value = settings.pass || "";
+}
+
+function saveRows() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+}
+
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+    url: document.getElementById("n8n-url").value.trim(),
+    user: document.getElementById("n8n-user").value,
+    pass: document.getElementById("n8n-pass").value
+  }));
+}
+
+function newRow(prenom = "", nom = "", url = "", statut = "", notes = "") {
+  return { prenom, nom, url, statut, notes, status: "idle", response: "" };
+}
+
+function render() {
+  const body = document.getElementById("rows-body");
+  body.innerHTML = "";
+  rows.forEach((row, i) => {
+    const tr = document.createElement("tr");
+
+    tr.appendChild(makeInputCell(row, i, "prenom"));
+    tr.appendChild(makeInputCell(row, i, "nom"));
+    tr.appendChild(makeInputCell(row, i, "url"));
+    tr.appendChild(makeInputCell(row, i, "statut", "statut-options"));
+    tr.appendChild(makeInputCell(row, i, "notes"));
+
+    const statusTd = document.createElement("td");
+    const badge = document.createElement("span");
+    badge.className = "status-badge status-" + row.status;
+    badge.textContent = { idle: "—", loading: "...", ok: "OK", error: "Erreur" }[row.status];
+    statusTd.appendChild(badge);
+    tr.appendChild(statusTd);
+
+    const responseTd = document.createElement("td");
+    responseTd.className = "response-cell";
+    if (row.response) {
+      const pre = document.createElement("pre");
+      pre.textContent = row.response;
+      responseTd.appendChild(pre);
+    }
+    tr.appendChild(responseTd);
+
+    const actionsTd = document.createElement("td");
+    actionsTd.className = "col-actions";
+    const sendBtn = document.createElement("button");
+    sendBtn.className = "btn btn-secondary btn-small";
+    sendBtn.textContent = "▶";
+    sendBtn.title = "Envoyer cette ligne";
+    sendBtn.addEventListener("click", () => sendRow(i));
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn btn-danger btn-small";
+    delBtn.textContent = "✕";
+    delBtn.title = "Supprimer la ligne";
+    delBtn.style.marginLeft = "4px";
+    delBtn.addEventListener("click", () => {
+      rows.splice(i, 1);
+      saveRows();
+      render();
+    });
+    actionsTd.appendChild(sendBtn);
+    actionsTd.appendChild(delBtn);
+    tr.appendChild(actionsTd);
+
+    body.appendChild(tr);
+  });
+}
+
+function makeInputCell(row, i, field, listId) {
+  const td = document.createElement("td");
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = row[field];
+  if (listId) input.setAttribute("list", listId);
+  input.addEventListener("input", () => {
+    rows[i][field] = input.value;
+    saveRows();
+  });
+  td.appendChild(input);
+  return td;
+}
+
+async function sendRow(i) {
+  const row = rows[i];
+  const url = document.getElementById("n8n-url").value.trim();
+  if (!url) {
+    alert("Renseigne d'abord l'URL du webhook dans Connexion N8N.");
+    return;
+  }
+  const user = document.getElementById("n8n-user").value;
+  const pass = document.getElementById("n8n-pass").value;
+  const headers = { "Content-Type": "application/json" };
+  if (user || pass) headers["Authorization"] = "Basic " + btoa(`${user}:${pass}`);
+
+  row.status = "loading";
+  render();
+
+  const fullName = `${row.prenom} ${row.nom}`.trim();
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ fullName, url: row.url })
+    });
+    const text = await res.text();
+    row.status = res.ok ? "ok" : "error";
+    row.response = `HTTP ${res.status}\n${text}`;
+  } catch (err) {
+    row.status = "error";
+    row.response = `Erreur réseau: ${err.message}`;
+  }
+  saveRows();
+  render();
+}
+
+async function sendAll() {
+  for (let i = 0; i < rows.length; i++) {
+    await sendRow(i);
+  }
+}
+
+document.getElementById("add-row-btn").addEventListener("click", () => {
+  rows.push(newRow());
+  saveRows();
+  render();
+});
+
+document.getElementById("import-btn").addEventListener("click", () => {
+  const text = document.getElementById("import-textarea").value;
+  text.split("\n").map(l => l.trim()).filter(Boolean).forEach(line => {
+    const [prenom = "", nom = "", url = "", statut = ""] = line.split(";").map(s => s.trim());
+    rows.push(newRow(prenom, nom, url, statut));
+  });
+  document.getElementById("import-textarea").value = "";
+  saveRows();
+  render();
+});
+
+document.getElementById("send-all-btn").addEventListener("click", sendAll);
+
+document.getElementById("copy-json-btn").addEventListener("click", () => {
+  navigator.clipboard.writeText(JSON.stringify(rows, null, 2))
+    .then(() => alert("Copié dans le presse-papier !"));
+});
+
+document.getElementById("clear-btn").addEventListener("click", () => {
+  if (confirm("Vider tout le tableau ?")) {
+    rows = [];
+    saveRows();
+    render();
+  }
+});
+
+["n8n-url", "n8n-user", "n8n-pass"].forEach(id => {
+  document.getElementById(id).addEventListener("input", saveSettings);
+});
+
+load();
+render();
+</script>
+
+</body>
+</html>
