@@ -234,6 +234,8 @@ function openCompose(prefill) {
   els["message-textarea"].classList.remove("hidden");
   els["validate-btn"].classList.remove("hidden");
   els["message-textarea"].focus();
+  els["message-textarea"].setSelectionRange(0, 0);
+  els["message-textarea"].scrollTop = 0;
 }
 
 function closeCompose() {
