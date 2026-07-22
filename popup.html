@@ -33,6 +33,25 @@
         <button id="redetect-btn" class="btn-link">🔄 Re-détecter le profil</button>
       </div>
 
+      <details class="simulate-panel" id="n8n-settings">
+        <summary>🔗 Connexion N8N</summary>
+        <div class="field-row">
+          <label class="field-label" for="n8n-url">URL du webhook</label>
+          <input type="text" id="n8n-url" placeholder="https://wefiit.app.n8n.cloud/webhook-test/check-linkedin-profile" />
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="n8n-user">Utilisateur (Basic Auth)</label>
+          <input type="text" id="n8n-user" autocomplete="off" />
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="n8n-pass">Mot de passe (Basic Auth)</label>
+          <input type="password" id="n8n-pass" autocomplete="off" />
+        </div>
+        <p class="hint">Stocké uniquement dans ce navigateur (chrome.storage.local), jamais dans le code.</p>
+      </details>
+      <button id="send-n8n-btn" class="btn btn-secondary">🔗 Envoyer ce profil à N8N</button>
+      <pre id="n8n-result" class="n8n-result hidden"></pre>
+
       <div id="boond-not-found" class="hidden">
         <div class="status-banner status-neutral">❌ Profil absent de Boond</div>
         <button id="add-boond-btn" class="btn btn-primary">➕ Ajouter sur Boond (mock)</button>

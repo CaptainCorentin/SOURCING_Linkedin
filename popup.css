@@ -247,6 +247,25 @@ textarea {
   resize: vertical;
 }
 
+.n8n-result {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #14213d;
+  color: #dfe6fb;
+  font-size: 11px;
+  font-family: "Courier New", monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.n8n-result.error {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
 .toast {
   margin-top: 8px;
   padding: 8px 10px;

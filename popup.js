@@ -11,6 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
   populateDemoSelect();
   bindEvents();
+  loadN8nSettings();
   detectProfile();
 });
 
@@ -18,6 +19,7 @@ function cacheElements() {
   [
     "not-linkedin", "demo-select", "demo-load-btn",
     "profile-view", "profile-name", "profile-url", "redetect-btn",
+    "n8n-url", "n8n-user", "n8n-pass", "send-n8n-btn", "n8n-result",
     "boond-not-found", "add-boond-btn",
     "boond-found", "statut-select", "criteria-checkboxes",
     "poste-input", "entreprise-input",
@@ -27,6 +29,59 @@ function cacheElements() {
   ].forEach(id => {
     els[id] = document.getElementById(id);
   });
+}
+
+// --- Connexion N8N (URL + Basic Auth stockés localement, jamais dans le code) ---
+
+function loadN8nSettings() {
+  chrome.storage.local.get(["n8nUrl", "n8nUser", "n8nPass"], settings => {
+    els["n8n-url"].value = settings.n8nUrl || "";
+    els["n8n-user"].value = settings.n8nUser || "";
+    els["n8n-pass"].value = settings.n8nPass || "";
+  });
+}
+
+function saveN8nSettings() {
+  chrome.storage.local.set({
+    n8nUrl: els["n8n-url"].value.trim(),
+    n8nUser: els["n8n-user"].value,
+    n8nPass: els["n8n-pass"].value
+  });
+}
+
+async function sendProfileToN8n() {
+  const url = els["n8n-url"].value.trim();
+  if (!url) {
+    showN8nResult("Renseigne d'abord l'URL du webhook dans « Connexion N8N ».", true);
+    return;
+  }
+  if (!state.profile) return;
+
+  const user = els["n8n-user"].value;
+  const pass = els["n8n-pass"].value;
+  const headers = { "Content-Type": "application/json" };
+  if (user || pass) {
+    headers["Authorization"] = "Basic " + btoa(`${user}:${pass}`);
+  }
+
+  showN8nResult("Envoi en cours...", false);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ fullName: state.profile.fullName, url: state.profile.url })
+    });
+    const text = await response.text();
+    showN8nResult(`HTTP ${response.status}\n${text}`, !response.ok);
+  } catch (err) {
+    showN8nResult(`Erreur réseau : ${err.message}`, true);
+  }
+}
+
+function showN8nResult(text, isError) {
+  els["n8n-result"].textContent = text;
+  els["n8n-result"].classList.remove("hidden");
+  els["n8n-result"].classList.toggle("error", !!isError);
 }
 
 function populateDemoSelect() {
@@ -52,6 +107,10 @@ function bindEvents() {
   els["write-btn"].addEventListener("click", () => openCompose(""));
   els["generate-btn"].addEventListener("click", () => openCompose(generateMessage(state.record)));
   els["validate-btn"].addEventListener("click", validateAction);
+  els["send-n8n-btn"].addEventListener("click", sendProfileToN8n);
+  ["n8n-url", "n8n-user", "n8n-pass"].forEach(id => {
+    els[id].addEventListener("input", saveN8nSettings);
+  });
 }
 
 // --- Détection du profil LinkedIn actif ---
@@ -117,6 +176,7 @@ function render() {
 
   closeCompose();
   hideToast();
+  els["n8n-result"].classList.add("hidden");
 
   if (!state.record) {
     els["boond-not-found"].classList.remove("hidden");

@@ -16,5 +16,6 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["activeTab", "scripting"]
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["https://wefiit.app.n8n.cloud/*"]
 }
