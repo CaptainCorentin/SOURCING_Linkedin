@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sourcing LinkedIn</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="app-header">
+    <span class="app-title">Sourcing LinkedIn</span>
+    <span class="app-badge">Prototype · données fictives</span>
+  </header>
+
+  <main id="app">
+
+    <section id="not-linkedin" class="panel hidden">
+      <p>Ouvrez un profil LinkedIn (<code>linkedin.com/in/...</code>) puis rouvrez l'extension.</p>
+      <p class="hint">Mode démo : testez avec un profil fictif sans être sur LinkedIn.</p>
+      <label class="field-label" for="demo-select">Profil de démo</label>
+      <select id="demo-select">
+        <option value="">— Choisir un profil —</option>
+      </select>
+      <button id="demo-load-btn" class="btn btn-secondary">Charger ce profil</button>
+    </section>
+
+    <section id="profile-view" class="panel hidden">
+      <div class="profile-card">
+        <div class="profile-name" id="profile-name">—</div>
+        <div class="profile-url" id="profile-url">—</div>
+        <button id="redetect-btn" class="btn-link">🔄 Re-détecter le profil</button>
+      </div>
+
+      <div id="boond-not-found" class="hidden">
+        <div class="status-banner status-neutral">❌ Profil absent de Boond</div>
+        <button id="add-boond-btn" class="btn btn-primary">➕ Ajouter sur Boond (mock)</button>
+      </div>
+
+      <div id="boond-found" class="hidden">
+        <div class="status-banner status-ok">✅ Profil trouvé dans Boond</div>
+
+        <details class="simulate-panel">
+          <summary>⚙️ Simuler / modifier les données Boond</summary>
+          <div class="field-row">
+            <label class="field-label" for="statut-select">Statut</label>
+            <select id="statut-select"></select>
+          </div>
+          <div id="criteria-checkboxes"></div>
+          <div class="field-row">
+            <label class="field-label" for="poste-input">Poste</label>
+            <input type="text" id="poste-input" />
+          </div>
+          <div class="field-row">
+            <label class="field-label" for="entreprise-input">Entreprise</label>
+            <input type="text" id="entreprise-input" />
+          </div>
+        </details>
+
+        <div id="contactable-banner" class="status-banner"></div>
+        <ul id="block-reasons" class="reasons-list hidden"></ul>
+      </div>
+
+      <div id="contact-actions" class="hidden">
+        <div class="actions-row">
+          <button id="write-btn" class="btn btn-secondary">✍️ Écrire un message</button>
+          <button id="generate-btn" class="btn btn-secondary">🤖 Générer un message</button>
+        </div>
+        <textarea id="message-textarea" class="hidden" rows="7" placeholder="Écrivez votre message ici..."></textarea>
+        <button id="validate-btn" class="btn btn-primary hidden">Valider l'action « 1er contact »</button>
+      </div>
+
+      <div id="toast" class="toast hidden"></div>
+    </section>
+
+  </main>
+
+  <script src="mockData.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
