@@ -1,8 +1,8 @@
 // État en mémoire (rien n'est persisté, tout se réinitialise à la fermeture du popup).
 const state = {
   profile: null, // { fullName, url, html }
-  record: null, // fiche Boond en cours (copie modifiable) ou null
-  skipContactCheck: false // true juste après un "Ajout sur Boond" mock
+  checkResult: null, // { status, candidateId, message, searchUrl } — réponse brute du webhook "check"
+  pendingSend: null // { webhookKey, extraBody } — action en attente de confirmation dans le textarea
 };
 
 const els = {};
@@ -19,66 +19,94 @@ function cacheElements() {
   [
     "not-linkedin", "demo-select", "demo-load-btn",
     "profile-view", "profile-name", "profile-url", "redetect-btn",
-    "n8n-url", "n8n-user", "n8n-pass", "send-n8n-btn", "n8n-result",
-    "boond-not-found", "add-boond-btn",
-    "boond-found", "statut-select", "criteria-checkboxes",
-    "poste-input", "entreprise-input",
-    "contactable-banner", "block-reasons",
-    "contact-actions", "write-btn", "generate-btn",
-    "message-textarea", "validate-btn", "toast"
+    "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing",
+    "n8n-user", "n8n-pass", "check-btn", "n8n-result",
+    "result-panel", "status-banner",
+    "contactable-actions", "contactable-link", "contactable-message-preview",
+    "contact-standard-btn", "contact-custom-btn",
+    "not-contactable-actions", "not-contactable-link",
+    "multiple-actions", "multiple-link",
+    "not-found-actions", "not-found-message-preview",
+    "create-only-btn", "create-standard-btn", "create-custom-btn",
+    "message-textarea", "send-message-btn", "toast"
   ].forEach(id => {
     els[id] = document.getElementById(id);
   });
 }
 
-// --- Connexion N8N (URL + Basic Auth stockés localement, jamais dans le code) ---
+// --- Connexion N8N (URLs + Basic Auth stockés localement, jamais dans le code) ---
 
 function loadN8nSettings() {
-  chrome.storage.local.get(["n8nUrl", "n8nUser", "n8nPass"], settings => {
-    els["n8n-url"].value = settings.n8nUrl || "";
-    els["n8n-user"].value = settings.n8nUser || "";
-    els["n8n-pass"].value = settings.n8nPass || "";
-  });
+  chrome.storage.local.get(
+    ["n8nUrlCheck", "n8nUrlCreateOnly", "n8nUrlCreateContact", "n8nUrlContactExisting", "n8nUser", "n8nPass"],
+    settings => {
+      els["n8n-url-check"].value = settings.n8nUrlCheck || "";
+      els["n8n-url-create-only"].value = settings.n8nUrlCreateOnly || "";
+      els["n8n-url-create-contact"].value = settings.n8nUrlCreateContact || "";
+      els["n8n-url-contact-existing"].value = settings.n8nUrlContactExisting || "";
+      els["n8n-user"].value = settings.n8nUser || "";
+      els["n8n-pass"].value = settings.n8nPass || "";
+    }
+  );
 }
 
 function saveN8nSettings() {
   chrome.storage.local.set({
-    n8nUrl: els["n8n-url"].value.trim(),
+    n8nUrlCheck: els["n8n-url-check"].value.trim(),
+    n8nUrlCreateOnly: els["n8n-url-create-only"].value.trim(),
+    n8nUrlCreateContact: els["n8n-url-create-contact"].value.trim(),
+    n8nUrlContactExisting: els["n8n-url-contact-existing"].value.trim(),
     n8nUser: els["n8n-user"].value,
     n8nPass: els["n8n-pass"].value
   });
 }
 
-async function sendProfileToN8n() {
-  const url = els["n8n-url"].value.trim();
-  if (!url) {
-    showN8nResult("Renseigne d'abord l'URL du webhook dans « Connexion N8N ».", true);
-    return;
-  }
-  if (!state.profile) return;
+function getN8nUrl(webhookKey) {
+  const fieldId = {
+    check: "n8n-url-check",
+    createOnly: "n8n-url-create-only",
+    createContact: "n8n-url-create-contact",
+    contactExisting: "n8n-url-contact-existing"
+  }[webhookKey];
+  return els[fieldId].value.trim();
+}
 
+function n8nHeaders() {
   const user = els["n8n-user"].value;
   const pass = els["n8n-pass"].value;
   const headers = { "Content-Type": "application/json" };
   if (user || pass) {
     headers["Authorization"] = "Basic " + btoa(`${user}:${pass}`);
   }
+  return headers;
+}
 
+// Appelle un des 4 webhooks N8N et renvoie le JSON parsé (ou null si erreur réseau/HTTP).
+async function callN8n(webhookKey, body) {
+  const url = getN8nUrl(webhookKey);
+  if (!url) {
+    showN8nResult(`URL du webhook « ${webhookKey} » manquante dans « Connexion N8N ».`, true);
+    return null;
+  }
   showN8nResult("Envoi en cours...", false);
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers,
-      body: JSON.stringify({
-        fullName: state.profile.fullName,
-        url: state.profile.url,
-        html: state.profile.html || ""
-      })
+      headers: n8nHeaders(),
+      body: JSON.stringify(body)
     });
     const text = await response.text();
     showN8nResult(`HTTP ${response.status}\n${text}`, !response.ok);
+    if (!response.ok) return null;
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      showN8nResult(`Réponse non-JSON reçue :\n${text}`, true);
+      return null;
+    }
   } catch (err) {
     showN8nResult(`Erreur réseau : ${err.message}`, true);
+    return null;
   }
 }
 
@@ -104,15 +132,38 @@ function populateDemoSelect() {
 function bindEvents() {
   els["redetect-btn"].addEventListener("click", detectProfile);
   els["demo-load-btn"].addEventListener("click", loadDemoProfile);
-  els["add-boond-btn"].addEventListener("click", addToBoondMock);
-  els["statut-select"].addEventListener("change", onSimulateChange);
-  els["poste-input"].addEventListener("input", onSimulateChange);
-  els["entreprise-input"].addEventListener("input", onSimulateChange);
-  els["write-btn"].addEventListener("click", () => openCompose(""));
-  els["generate-btn"].addEventListener("click", () => openCompose(generateMessage(state.record)));
-  els["validate-btn"].addEventListener("click", validateAction);
-  els["send-n8n-btn"].addEventListener("click", sendProfileToN8n);
-  ["n8n-url", "n8n-user", "n8n-pass"].forEach(id => {
+  els["check-btn"].addEventListener("click", checkContactable);
+
+  els["contact-standard-btn"].addEventListener("click", () => {
+    sendAction("contactExisting", { candidateId: state.checkResult.candidateId, message: state.checkResult.message });
+  });
+  els["contact-custom-btn"].addEventListener("click", () => {
+    openCompose(state.checkResult.message, "contactExisting", { candidateId: state.checkResult.candidateId });
+  });
+
+  els["create-only-btn"].addEventListener("click", () => {
+    sendAction("createOnly", { fullName: state.profile.fullName, url: state.profile.url });
+  });
+  els["create-standard-btn"].addEventListener("click", () => {
+    sendAction("createContact", { fullName: state.profile.fullName, url: state.profile.url, message: state.checkResult.message });
+  });
+  els["create-custom-btn"].addEventListener("click", () => {
+    openCompose(state.checkResult.message, "createContact", { fullName: state.profile.fullName, url: state.profile.url });
+  });
+
+  els["send-message-btn"].addEventListener("click", () => {
+    if (!els["message-textarea"].value.trim()) {
+      els["message-textarea"].focus();
+      return;
+    }
+    const message = textToHtml(els["message-textarea"].value);
+    sendAction(state.pendingSend.webhookKey, { ...state.pendingSend.extraBody, message });
+  });
+
+  [
+    "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing",
+    "n8n-user", "n8n-pass"
+  ].forEach(id => {
     els[id].addEventListener("input", saveN8nSettings);
   });
 }
@@ -141,7 +192,7 @@ function detectProfile() {
 }
 
 // Exécuté dans le contexte de la page LinkedIn : nom, URL, et le HTML complet
-// (envoyé à N8N pour extraction des infos du profil par un LLM).
+// (envoyé à N8N pour extraction des infos du profil par un LLM — fonctionnalité déléguée).
 function extractProfileFromPage() {
   const h1 = document.querySelector("h1");
   const name = h1 ? h1.innerText.trim() : document.title.split("|")[0].split("-")[0].trim();
@@ -160,8 +211,7 @@ function loadDemoProfile() {
 
 function setProfile(profile) {
   state.profile = profile;
-  state.skipContactCheck = false;
-  state.record = lookupBoond(profile.fullName);
+  state.checkResult = null;
   render();
 }
 
@@ -182,140 +232,93 @@ function render() {
   closeCompose();
   hideToast();
   els["n8n-result"].classList.add("hidden");
-
-  if (!state.record) {
-    els["boond-not-found"].classList.remove("hidden");
-    els["boond-found"].classList.add("hidden");
-    els["contact-actions"].classList.add("hidden");
-    return;
-  }
-
-  els["boond-not-found"].classList.add("hidden");
-
-  if (state.skipContactCheck) {
-    els["boond-found"].classList.add("hidden");
-    els["contact-actions"].classList.remove("hidden");
-    return;
-  }
-
-  els["boond-found"].classList.remove("hidden");
-  renderSimulatePanel();
-  renderContactableBanner();
+  els["result-panel"].classList.add("hidden");
 }
 
-function renderSimulatePanel() {
-  const record = state.record;
+// --- Étape 1 : vérifier si contactable (déclenche le 1er webhook) ---
 
-  els["statut-select"].innerHTML = "";
-  STATUT_OPTIONS.forEach(s => {
-    const opt = document.createElement("option");
-    opt.value = s;
-    opt.textContent = s + (BLOQUANTS_STATUT.includes(s) ? " (bloquant)" : "");
-    if (s === record.statut) opt.selected = true;
-    els["statut-select"].appendChild(opt);
-  });
-
-  els["criteria-checkboxes"].innerHTML = "";
-  Object.keys(CRITERIA_LABELS).forEach(key => {
-    const row = document.createElement("label");
-    row.className = "checkbox-row";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = !!record.criteria[key];
-    checkbox.dataset.criterionKey = key;
-    checkbox.addEventListener("change", onSimulateChange);
-    const span = document.createElement("span");
-    span.textContent = CRITERIA_LABELS[key];
-    row.appendChild(checkbox);
-    row.appendChild(span);
-    els["criteria-checkboxes"].appendChild(row);
-  });
-
-  els["poste-input"].value = record.poste || "";
-  els["entreprise-input"].value = record.entreprise || "";
+async function checkContactable() {
+  if (!state.profile) return;
+  const result = await callN8n("check", { fullName: state.profile.fullName, url: state.profile.url });
+  if (!result) return;
+  state.checkResult = result;
+  renderResultPanel();
 }
 
-function onSimulateChange() {
-  const record = state.record;
-  record.statut = els["statut-select"].value;
-  record.poste = els["poste-input"].value;
-  record.entreprise = els["entreprise-input"].value;
-  els["criteria-checkboxes"].querySelectorAll("input[type=checkbox]").forEach(cb => {
-    record.criteria[cb.dataset.criterionKey] = cb.checked;
-  });
-  renderContactableBanner();
-}
+function renderResultPanel() {
+  const { status, candidateId, message, searchUrl } = state.checkResult;
+  const banner = els["status-banner"];
 
-function renderContactableBanner() {
-  const { contactable, reasons } = computeContactable(state.record);
-  const banner = els["contactable-banner"];
-  const list = els["block-reasons"];
+  closeCompose();
+  els["result-panel"].classList.remove("hidden");
+  els["contactable-actions"].classList.add("hidden");
+  els["not-contactable-actions"].classList.add("hidden");
+  els["multiple-actions"].classList.add("hidden");
+  els["not-found-actions"].classList.add("hidden");
 
-  if (contactable) {
+  if (status === "contactable") {
     banner.className = "status-banner status-go";
     banner.textContent = "✅ Contactable";
-    list.classList.add("hidden");
-    els["contact-actions"].classList.remove("hidden");
+    els["contactable-link"].href = candidateBoondUrl(candidateId);
+    els["contactable-message-preview"].innerHTML = message || "";
+    els["contactable-actions"].classList.remove("hidden");
+  } else if (status === "not_contactable") {
+    banner.className = "status-banner status-blocked";
+    banner.textContent = "⛔ Non contactable";
+    els["not-contactable-link"].href = candidateBoondUrl(candidateId);
+    els["not-contactable-actions"].classList.remove("hidden");
+  } else if (status === "multiple_matches") {
+    banner.className = "status-banner status-neutral";
+    banner.textContent = "🔍 Plusieurs correspondances dans Boond";
+    els["multiple-link"].href = searchUrl;
+    els["multiple-actions"].classList.remove("hidden");
+  } else if (status === "not_found") {
+    banner.className = "status-banner status-neutral";
+    banner.textContent = "❌ Absent de Boond";
+    els["not-found-message-preview"].innerHTML = message || "";
+    els["not-found-actions"].classList.remove("hidden");
   } else {
     banner.className = "status-banner status-blocked";
-    banner.textContent = "⛔ Pas d'action — profil non contactable";
-    list.innerHTML = "";
-    reasons.forEach(r => {
-      const li = document.createElement("li");
-      li.textContent = r;
-      list.appendChild(li);
-    });
-    list.classList.remove("hidden");
-    els["contact-actions"].classList.add("hidden");
-    closeCompose();
+    banner.textContent = `Statut inconnu reçu de N8N : ${status}`;
   }
 }
 
-// --- "Ajout sur Boond" (mock) ---
-
-function addToBoondMock() {
-  state.record = {
-    fullName: state.profile.fullName,
-    poste: "",
-    entreprise: "",
-    statut: "A traiter",
-    criteria: {
-      contactMoins1Mois: false,
-      pasInteresseMoins4Mois: false,
-      pasDeProcessDepuis1An: false,
-      pasDeRappelFutur: false,
-      finProcessInitiativeCandidat: false
-    }
-  };
-  state.skipContactCheck = true;
-  render();
-  showToast("Profil ajouté sur Boond (mock) — passage direct au 1er contact.");
+function candidateBoondUrl(candidateId) {
+  return `https://ui.boondmanager.com/candidates/${candidateId}/overview`;
 }
 
-// --- Actions de contact ---
+// --- Étape 2 : envoyer une action (créer candidat / créer + contacter / contacter existant) ---
 
-function openCompose(prefill) {
-  els["message-textarea"].value = prefill;
+function openCompose(prefillHtml, webhookKey, extraBody) {
+  state.pendingSend = { webhookKey, extraBody };
+  els["message-textarea"].value = htmlToText(prefillHtml || "");
   els["message-textarea"].classList.remove("hidden");
-  els["validate-btn"].classList.remove("hidden");
+  els["send-message-btn"].classList.remove("hidden");
   els["message-textarea"].focus();
   els["message-textarea"].setSelectionRange(0, 0);
   els["message-textarea"].scrollTop = 0;
 }
 
 function closeCompose() {
+  state.pendingSend = null;
   els["message-textarea"].classList.add("hidden");
-  els["validate-btn"].classList.add("hidden");
+  els["send-message-btn"].classList.add("hidden");
   els["message-textarea"].value = "";
 }
 
-function validateAction() {
-  if (!els["message-textarea"].value.trim()) {
-    els["message-textarea"].focus();
-    return;
-  }
+async function sendAction(webhookKey, body) {
+  const result = await callN8n(webhookKey, body);
+  if (!result) return;
   closeCompose();
-  showToast("Action « 1er contact » ajoutée ✅ (mock, non persistée)");
+  showToast("Action envoyée à Boond ✅");
+}
+
+function htmlToText(html) {
+  return html.replace(/<br\s*\/?>/gi, "\n");
+}
+
+function textToHtml(text) {
+  return text.replace(/\n/g, "<br/>");
 }
 
 // --- Toast ---

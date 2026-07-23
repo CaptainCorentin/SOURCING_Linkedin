@@ -11,7 +11,7 @@
       <img src="icons/icon48.png" alt="We.FiiT" class="brand-logo" />
       <span class="app-title">Sourcing LinkedIn<span class="title-dot">.</span></span>
     </div>
-    <span class="app-badge">Prototype · données fictives</span>
+    <span class="app-badge">Connecté à N8N / Boond</span>
   </header>
 
   <main id="app">
@@ -36,8 +36,20 @@
       <details class="simulate-panel" id="n8n-settings">
         <summary>🔗 Connexion N8N</summary>
         <div class="field-row">
-          <label class="field-label" for="n8n-url">URL du webhook</label>
-          <input type="text" id="n8n-url" placeholder="https://wefiit.app.n8n.cloud/webhook-test/check-linkedin-profile" />
+          <label class="field-label" for="n8n-url-check">URL webhook — Check profil</label>
+          <input type="text" id="n8n-url-check" placeholder="https://.../webhook/check-linkedin-profile" />
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="n8n-url-create-only">URL webhook — Créer candidat seul</label>
+          <input type="text" id="n8n-url-create-only" placeholder="https://.../webhook/create-candidate-only" />
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="n8n-url-create-contact">URL webhook — Créer candidat + 1er contact</label>
+          <input type="text" id="n8n-url-create-contact" placeholder="https://.../webhook/create-candidate-and-contact" />
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="n8n-url-contact-existing">URL webhook — Contacter candidat existant</label>
+          <input type="text" id="n8n-url-contact-existing" placeholder="https://.../webhook/contact-existing-candidate" />
         </div>
         <div class="field-row">
           <label class="field-label" for="n8n-user">Utilisateur (Basic Auth)</label>
@@ -49,45 +61,46 @@
         </div>
         <p class="hint">Stocké uniquement dans ce navigateur (chrome.storage.local), jamais dans le code.</p>
       </details>
-      <button id="send-n8n-btn" class="btn btn-secondary">🔗 Envoyer ce profil à N8N</button>
+
+      <button id="check-btn" class="btn btn-primary">🔍 Vérifier si contactable</button>
       <pre id="n8n-result" class="n8n-result hidden"></pre>
 
-      <div id="boond-not-found" class="hidden">
-        <div class="status-banner status-neutral">❌ Profil absent de Boond</div>
-        <button id="add-boond-btn" class="btn btn-primary">➕ Ajouter sur Boond (mock)</button>
-      </div>
+      <div id="result-panel" class="hidden">
+        <div id="status-banner" class="status-banner"></div>
 
-      <div id="boond-found" class="hidden">
-        <div class="status-banner status-ok">✅ Profil trouvé dans Boond</div>
-
-        <details class="simulate-panel">
-          <summary>⚙️ Simuler / modifier les données Boond</summary>
-          <div class="field-row">
-            <label class="field-label" for="statut-select">Statut</label>
-            <select id="statut-select"></select>
+        <!-- Contactable -->
+        <div id="contactable-actions" class="hidden">
+          <a id="contactable-link" class="btn-link" target="_blank" rel="noopener">🔗 Voir la fiche Boond</a>
+          <p id="contactable-message-preview" class="message-preview"></p>
+          <div class="actions-row">
+            <button id="contact-standard-btn" class="btn btn-secondary">✉️ 1er Contact standard</button>
+            <button id="contact-custom-btn" class="btn btn-secondary">✍️ Champs à compléter</button>
           </div>
-          <div id="criteria-checkboxes"></div>
-          <div class="field-row">
-            <label class="field-label" for="poste-input">Poste</label>
-            <input type="text" id="poste-input" />
-          </div>
-          <div class="field-row">
-            <label class="field-label" for="entreprise-input">Entreprise</label>
-            <input type="text" id="entreprise-input" />
-          </div>
-        </details>
-
-        <div id="contactable-banner" class="status-banner"></div>
-        <ul id="block-reasons" class="reasons-list hidden"></ul>
-      </div>
-
-      <div id="contact-actions" class="hidden">
-        <div class="actions-row">
-          <button id="write-btn" class="btn btn-secondary">✍️ Écrire un message</button>
-          <button id="generate-btn" class="btn btn-secondary">🤖 Générer un message</button>
         </div>
+
+        <!-- Non contactable -->
+        <div id="not-contactable-actions" class="hidden">
+          <p class="hint">Ce profil n'est pas contactable pour le moment. 😕</p>
+          <a id="not-contactable-link" class="btn-link" target="_blank" rel="noopener">🔗 Voir la fiche Boond</a>
+        </div>
+
+        <!-- Plusieurs correspondances -->
+        <div id="multiple-actions" class="hidden">
+          <a id="multiple-link" class="btn-link" target="_blank" rel="noopener">🔗 Voir les résultats sur Boond</a>
+        </div>
+
+        <!-- Pas dans Boond -->
+        <div id="not-found-actions" class="hidden">
+          <p id="not-found-message-preview" class="message-preview"></p>
+          <div class="actions-row-col">
+            <button id="create-only-btn" class="btn btn-secondary">➕ Créer la fiche seulement</button>
+            <button id="create-standard-btn" class="btn btn-secondary">➕✉️ Créer + 1er Contact standard</button>
+            <button id="create-custom-btn" class="btn btn-secondary">➕✍️ Créer + 1er contact personnalisé</button>
+          </div>
+        </div>
+
         <textarea id="message-textarea" class="hidden" rows="7" placeholder="Écrivez votre message ici..."></textarea>
-        <button id="validate-btn" class="btn btn-primary hidden">Valider l'action « 1er contact »</button>
+        <button id="send-message-btn" class="btn btn-primary hidden">Envoyer</button>
       </div>
 
       <div id="toast" class="toast hidden"></div>
