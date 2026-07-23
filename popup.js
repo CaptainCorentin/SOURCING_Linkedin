@@ -1,6 +1,6 @@
 // État en mémoire (rien n'est persisté, tout se réinitialise à la fermeture du popup).
 const state = {
-  profile: null, // { fullName, url }
+  profile: null, // { fullName, url, html }
   record: null, // fiche Boond en cours (copie modifiable) ou null
   skipContactCheck: false // true juste après un "Ajout sur Boond" mock
 };
@@ -69,7 +69,11 @@ async function sendProfileToN8n() {
     const response = await fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify({ fullName: state.profile.fullName, url: state.profile.url })
+      body: JSON.stringify({
+        fullName: state.profile.fullName,
+        url: state.profile.url,
+        html: state.profile.html || ""
+      })
     });
     const text = await response.text();
     showN8nResult(`HTTP ${response.status}\n${text}`, !response.ok);
@@ -136,11 +140,12 @@ function detectProfile() {
   });
 }
 
-// Exécuté dans le contexte de la page LinkedIn : ne récupère QUE le nom et l'URL.
+// Exécuté dans le contexte de la page LinkedIn : nom, URL, et le HTML complet
+// (envoyé à N8N pour extraction des infos du profil par un LLM).
 function extractProfileFromPage() {
   const h1 = document.querySelector("h1");
   const name = h1 ? h1.innerText.trim() : document.title.split("|")[0].split("-")[0].trim();
-  return { fullName: name, url: window.location.href };
+  return { fullName: name, url: window.location.href, html: document.documentElement.outerHTML };
 }
 
 function loadDemoProfile() {
