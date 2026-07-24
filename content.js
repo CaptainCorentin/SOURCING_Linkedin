@@ -113,6 +113,8 @@
       margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: #e7f8ee; color: #157a3d;
       font-size: 12px; font-weight: 700; text-align: center;
     }
+    .toast.toast-error { background: #fdece9; color: #c62828; }
+    #check-error { color: #c62828; font-weight: 700; }
   `;
 
   const state = {
@@ -498,6 +500,7 @@
     const result = await callN8n(webhookKey, body);
     if (!result) {
       if (triggerBtn) triggerBtn.disabled = false;
+      showToast("❌ Erreur lors de l'envoi — voir le détail ci-dessous, réessaie.", true);
       return;
     }
     els["n8n-result"].classList.add("hidden");
@@ -522,9 +525,10 @@
     return text.replace(/\n/g, "<br/>");
   }
 
-  function showToast(message) {
+  function showToast(message, isError) {
     els["toast"].textContent = message;
     els["toast"].classList.remove("hidden");
+    els["toast"].classList.toggle("toast-error", !!isError);
     setTimeout(() => els["toast"].classList.add("hidden"), 6000);
   }
 
