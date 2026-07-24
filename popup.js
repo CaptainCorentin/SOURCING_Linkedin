@@ -1,3 +1,14 @@
+// Valeurs par défaut non sensibles (URLs de webhook + utilisateur) : pré-remplies pour
+// éviter de les ressaisir à chaque install, mais SANS le mot de passe — celui-ci n'est
+// jamais mis en dur et reste à saisir manuellement, stocké uniquement en local.
+const DEFAULTS = {
+  n8nUrlCheck: "https://wefiit.app.n8n.cloud/webhook/check-linkedin-profile",
+  n8nUrlCreateOnly: "https://wefiit.app.n8n.cloud/webhook/create-candidate-only",
+  n8nUrlCreateContact: "https://wefiit.app.n8n.cloud/webhook/create-candidate-and-contact",
+  n8nUrlContactExisting: "https://wefiit.app.n8n.cloud/webhook/contact-existing-candidate",
+  n8nUser: "WefiiT-extension-sourcing-linkedin"
+};
+
 // État en mémoire (rien n'est persisté, tout se réinitialise à la fermeture du popup).
 const state = {
   profile: null, // { fullName, url, html }
@@ -40,12 +51,12 @@ function loadN8nSettings() {
   chrome.storage.local.get(
     ["n8nUrlCheck", "n8nUrlCreateOnly", "n8nUrlCreateContact", "n8nUrlContactExisting", "n8nUser", "n8nPass"],
     settings => {
-      els["n8n-url-check"].value = settings.n8nUrlCheck || "";
-      els["n8n-url-create-only"].value = settings.n8nUrlCreateOnly || "";
-      els["n8n-url-create-contact"].value = settings.n8nUrlCreateContact || "";
-      els["n8n-url-contact-existing"].value = settings.n8nUrlContactExisting || "";
-      els["n8n-user"].value = settings.n8nUser || "";
-      els["n8n-pass"].value = settings.n8nPass || "";
+      els["n8n-url-check"].value = settings.n8nUrlCheck || DEFAULTS.n8nUrlCheck;
+      els["n8n-url-create-only"].value = settings.n8nUrlCreateOnly || DEFAULTS.n8nUrlCreateOnly;
+      els["n8n-url-create-contact"].value = settings.n8nUrlCreateContact || DEFAULTS.n8nUrlCreateContact;
+      els["n8n-url-contact-existing"].value = settings.n8nUrlContactExisting || DEFAULTS.n8nUrlContactExisting;
+      els["n8n-user"].value = settings.n8nUser || DEFAULTS.n8nUser;
+      els["n8n-pass"].value = settings.n8nPass || ""; // jamais de valeur par défaut ici
     }
   );
 }
