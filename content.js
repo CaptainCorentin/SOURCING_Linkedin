@@ -74,6 +74,7 @@
     .btn-secondary:hover { background: #f2f5ff; }
     .btn:focus { outline: none; }
     .btn:focus-visible { box-shadow: 0 0 0 2px rgba(0,40,130,0.45); }
+    .btn:disabled { opacity: 0.6; cursor: default; }
     .btn-link {
       display: inline-block; color: #002882; font-size: 12px; font-weight: 700;
       text-decoration: none; margin-bottom: 6px;
@@ -217,10 +218,14 @@
 
   init();
 
-  function init() {
+  async function init() {
     loadPosition();
-    loadSettings();
     detectProfile();
+    els["check-btn"].disabled = true;
+    els["check-btn"].textContent = "⏳ Chargement des réglages...";
+    await loadSettings();
+    els["check-btn"].disabled = false;
+    els["check-btn"].textContent = "🔍 Vérifier si contactable";
     bindEvents();
     bindDrag();
   }
@@ -289,17 +294,20 @@
   // --- Réglages N8N (partagés avec le popup) ---
 
   function loadSettings() {
-    chrome.storage.local.get(
-      ["n8nUrlCheck", "n8nUrlCreateOnly", "n8nUrlCreateContact", "n8nUrlContactExisting", "n8nUser", "n8nPass"],
-      settings => {
-        els["n8n-url-check"].value = settings.n8nUrlCheck || "";
-        els["n8n-url-create-only"].value = settings.n8nUrlCreateOnly || "";
-        els["n8n-url-create-contact"].value = settings.n8nUrlCreateContact || "";
-        els["n8n-url-contact-existing"].value = settings.n8nUrlContactExisting || "";
-        els["n8n-user"].value = settings.n8nUser || "";
-        els["n8n-pass"].value = settings.n8nPass || "";
-      }
-    );
+    return new Promise(resolve => {
+      chrome.storage.local.get(
+        ["n8nUrlCheck", "n8nUrlCreateOnly", "n8nUrlCreateContact", "n8nUrlContactExisting", "n8nUser", "n8nPass"],
+        settings => {
+          els["n8n-url-check"].value = settings.n8nUrlCheck || "";
+          els["n8n-url-create-only"].value = settings.n8nUrlCreateOnly || "";
+          els["n8n-url-create-contact"].value = settings.n8nUrlCreateContact || "";
+          els["n8n-url-contact-existing"].value = settings.n8nUrlContactExisting || "";
+          els["n8n-user"].value = settings.n8nUser || "";
+          els["n8n-pass"].value = settings.n8nPass || "";
+          resolve();
+        }
+      );
+    });
   }
 
   function saveSettings() {
