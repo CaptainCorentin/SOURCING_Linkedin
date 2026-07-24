@@ -166,7 +166,8 @@
             <div class="profile-url" id="profile-url">—</div>
           </div>
 
-          <button class="btn btn-primary" id="check-btn">🔍 Vérifier si contactable</button>
+          <p class="hint" id="checking-status">🔍 Vérification en cours...</p>
+          <p class="hint hidden" id="check-error">⚠️ Vérification impossible. <button class="btn-link" id="retry-check-btn">Réessayer</button></p>
           <pre class="n8n-result hidden" id="n8n-result"></pre>
 
           <div class="result-panel hidden" id="result-panel">
@@ -214,7 +215,7 @@
     "bubble", "avatar-btn", "panel", "settings-btn", "close-btn",
     "settings", "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing",
     "n8n-user", "n8n-pass",
-    "body", "profile-name", "profile-url", "check-btn", "n8n-result",
+    "body", "profile-name", "profile-url", "checking-status", "check-error", "retry-check-btn", "n8n-result",
     "result-panel", "status-banner",
     "contactable-actions", "contactable-link", "contactable-message-preview",
     "contact-standard-btn", "contact-custom-btn",
@@ -232,13 +233,10 @@
   async function init() {
     loadPosition();
     detectProfile();
-    els["check-btn"].disabled = true;
-    els["check-btn"].textContent = "⏳ Chargement des réglages...";
     await loadSettings();
-    els["check-btn"].disabled = false;
-    els["check-btn"].textContent = "🔍 Vérifier si contactable";
     bindEvents();
     bindDrag();
+    checkContactable();
   }
 
   // --- Position (draggable, persistée) ---
@@ -421,8 +419,14 @@
 
   async function checkContactable() {
     if (!state.profile) return;
+    els["checking-status"].classList.remove("hidden");
+    els["check-error"].classList.add("hidden");
     const result = await callN8n("check", { fullName: state.profile.fullName, url: state.profile.url });
-    if (!result) return;
+    els["checking-status"].classList.add("hidden");
+    if (!result) {
+      els["check-error"].classList.remove("hidden");
+      return;
+    }
     els["n8n-result"].classList.add("hidden");
     state.checkResult = result;
     renderResultPanel();
@@ -473,8 +477,8 @@
 
   // --- Étape 2 : envoyer une action ---
 
-  function openCompose(prefillHtml, webhookKey, extraBody) {
-    state.pendingSend = { webhookKey, extraBody };
+  function openCompose(prefillHtml, webhookKey, extraBody, successMessage) {
+    state.pendingSend = { webhookKey, extraBody, successMessage };
     els["message-textarea"].value = htmlToText(prefillHtml || "");
     els["message-textarea"].classList.remove("hidden");
     els["send-message-btn"].classList.remove("hidden");
@@ -488,12 +492,26 @@
     els["message-textarea"].value = "";
   }
 
-  async function sendAction(webhookKey, body) {
+  async function sendAction(webhookKey, body, options = {}) {
+    const { successMessage = "Action envoyée à Boond ✅", triggerBtn = null, copyMessage = null } = options;
+    if (triggerBtn) triggerBtn.disabled = true;
     const result = await callN8n(webhookKey, body);
-    if (!result) return;
+    if (!result) {
+      if (triggerBtn) triggerBtn.disabled = false;
+      return;
+    }
     els["n8n-result"].classList.add("hidden");
     closeCompose();
-    showToast("Action envoyée à Boond ✅");
+    if (copyMessage) {
+      try {
+        await navigator.clipboard.writeText(copyMessage);
+        showToast(`${successMessage} 📋 Message copié dans le presse-papier.`);
+        return;
+      } catch (e) {
+        // Le presse-papier a pu être refusé par le navigateur — on retombe sur le toast simple.
+      }
+    }
+    showToast(successMessage);
   }
 
   function htmlToText(html) {
@@ -507,7 +525,7 @@
   function showToast(message) {
     els["toast"].textContent = message;
     els["toast"].classList.remove("hidden");
-    setTimeout(() => els["toast"].classList.add("hidden"), 4000);
+    setTimeout(() => els["toast"].classList.add("hidden"), 6000);
   }
 
   // --- Bind ---
@@ -518,23 +536,48 @@
       els["settings"].classList.toggle("hidden");
       els["body"].classList.toggle("hidden");
     });
-    els["check-btn"].addEventListener("click", checkContactable);
+    els["retry-check-btn"].addEventListener("click", checkContactable);
 
     els["contact-standard-btn"].addEventListener("click", () => {
-      sendAction("contactExisting", { candidateId: state.checkResult.candidateId, message: state.checkResult.message });
+      sendAction(
+        "contactExisting",
+        { candidateId: state.checkResult.candidateId, message: state.checkResult.message },
+        {
+          successMessage: "✅ 1er contact envoyé !",
+          triggerBtn: els["contact-standard-btn"],
+          copyMessage: htmlToText(state.checkResult.message || "")
+        }
+      );
     });
     els["contact-custom-btn"].addEventListener("click", () => {
-      openCompose(state.checkResult.message, "contactExisting", { candidateId: state.checkResult.candidateId });
+      openCompose(state.checkResult.message, "contactExisting", { candidateId: state.checkResult.candidateId }, "✅ 1er contact envoyé !");
     });
 
     els["create-only-btn"].addEventListener("click", () => {
-      sendAction("createOnly", { fullName: state.profile.fullName, url: state.profile.url });
+      sendAction(
+        "createOnly",
+        { fullName: state.profile.fullName, url: state.profile.url },
+        { successMessage: "✅ Candidat ajouté sur Boond !", triggerBtn: els["create-only-btn"] }
+      );
     });
     els["create-standard-btn"].addEventListener("click", () => {
-      sendAction("createContact", { fullName: state.profile.fullName, url: state.profile.url, message: state.checkResult.message });
+      sendAction(
+        "createContact",
+        { fullName: state.profile.fullName, url: state.profile.url, message: state.checkResult.message },
+        {
+          successMessage: "✅ Candidat ajouté + 1er contact envoyé !",
+          triggerBtn: els["create-standard-btn"],
+          copyMessage: htmlToText(state.checkResult.message || "")
+        }
+      );
     });
     els["create-custom-btn"].addEventListener("click", () => {
-      openCompose(state.checkResult.message, "createContact", { fullName: state.profile.fullName, url: state.profile.url });
+      openCompose(
+        state.checkResult.message,
+        "createContact",
+        { fullName: state.profile.fullName, url: state.profile.url },
+        "✅ Candidat ajouté + 1er contact envoyé !"
+      );
     });
 
     els["send-message-btn"].addEventListener("click", () => {
@@ -542,8 +585,13 @@
         els["message-textarea"].focus();
         return;
       }
-      const message = textToHtml(els["message-textarea"].value);
-      sendAction(state.pendingSend.webhookKey, { ...state.pendingSend.extraBody, message });
+      const plainText = els["message-textarea"].value;
+      const message = textToHtml(plainText);
+      sendAction(state.pendingSend.webhookKey, { ...state.pendingSend.extraBody, message }, {
+        successMessage: state.pendingSend.successMessage,
+        triggerBtn: els["send-message-btn"],
+        copyMessage: plainText
+      });
     });
 
     [
