@@ -62,14 +62,17 @@ function loadN8nSettings() {
 }
 
 function saveN8nSettings() {
-  chrome.storage.local.set({
+  const settingsToSave = {
     n8nUrlCheck: els["n8n-url-check"].value.trim(),
     n8nUrlCreateOnly: els["n8n-url-create-only"].value.trim(),
     n8nUrlCreateContact: els["n8n-url-create-contact"].value.trim(),
     n8nUrlContactExisting: els["n8n-url-contact-existing"].value.trim(),
-    n8nUser: els["n8n-user"].value,
-    n8nPass: els["n8n-pass"].value
-  });
+    n8nUser: els["n8n-user"].value
+  };
+  // Ne jamais écraser un mot de passe déjà enregistré par une valeur vide
+  // (ex: interférence d'un gestionnaire de mots de passe sur le champ).
+  if (els["n8n-pass"].value) settingsToSave.n8nPass = els["n8n-pass"].value;
+  chrome.storage.local.set(settingsToSave);
 }
 
 function getN8nUrl(webhookKey) {
