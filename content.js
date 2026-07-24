@@ -56,6 +56,7 @@
     .body, .settings { padding: 10px 12px; }
     .profile-card { margin-bottom: 8px; }
     .profile-name { font-weight: 700; font-size: 14px; color: #002882; }
+    .profile-url { font-size: 10px; color: #5a6484; word-break: break-all; margin-top: 1px; }
     .field-label { display: block; font-size: 11px; font-weight: 700; color: #002882; margin: 8px 0 3px; }
     input, textarea {
       width: 100%; padding: 6px 8px; border: 1px solid #c9d2ec; border-radius: 6px;
@@ -71,6 +72,8 @@
     .btn-primary:hover { background: #e8572a; }
     .btn-secondary { background: white; color: #002882; border: 1px solid #c9d2ec; }
     .btn-secondary:hover { background: #f2f5ff; }
+    .btn:focus { outline: none; }
+    .btn:focus-visible { box-shadow: 0 0 0 2px rgba(0,40,130,0.45); }
     .btn-link {
       display: inline-block; color: #002882; font-size: 12px; font-weight: 700;
       text-decoration: none; margin-bottom: 6px;
@@ -148,6 +151,7 @@
         <div class="body" id="body">
           <div class="profile-card">
             <div class="profile-name" id="profile-name">—</div>
+            <div class="profile-url" id="profile-url">—</div>
           </div>
 
           <button class="btn btn-primary" id="check-btn">🔍 Vérifier si contactable</button>
@@ -198,7 +202,7 @@
     "bubble", "avatar-btn", "panel", "settings-btn", "close-btn",
     "settings", "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing",
     "n8n-user", "n8n-pass",
-    "body", "profile-name", "check-btn", "n8n-result",
+    "body", "profile-name", "profile-url", "check-btn", "n8n-result",
     "result-panel", "status-banner",
     "contactable-actions", "contactable-link", "contactable-message-preview",
     "contact-standard-btn", "contact-custom-btn",
@@ -369,6 +373,7 @@
     const fullName = h1 ? h1.innerText.trim() : document.title.split("|")[0].split("-")[0].trim();
     state.profile = { fullName, url: window.location.href };
     els["profile-name"].textContent = fullName;
+    els["profile-url"].textContent = state.profile.url;
   }
 
   // --- Ouverture / fermeture du panneau ---
@@ -396,6 +401,7 @@
     if (!state.profile) return;
     const result = await callN8n("check", { fullName: state.profile.fullName, url: state.profile.url });
     if (!result) return;
+    els["n8n-result"].classList.add("hidden");
     state.checkResult = result;
     renderResultPanel();
   }
@@ -463,6 +469,7 @@
   async function sendAction(webhookKey, body) {
     const result = await callN8n(webhookKey, body);
     if (!result) return;
+    els["n8n-result"].classList.add("hidden");
     closeCompose();
     showToast("Action envoyée à Boond ✅");
   }
