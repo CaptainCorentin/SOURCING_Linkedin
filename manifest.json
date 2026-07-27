@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sourcing LinkedIn — WeFiiT",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Vérifie la contactabilité d'un profil LinkedIn dans Boond et crée le 1er contact en un clic.",
   "action": {
     "default_popup": "popup.html",
