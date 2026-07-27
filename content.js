@@ -392,7 +392,7 @@
 
   function detectProfile() {
     const h1 = document.querySelector("h1");
-    const fullName = h1 ? h1.innerText.trim() : document.title.split("|")[0].split(/\s[-–]\s/)[0].trim();
+    const fullName = h1 ? h1.innerText.trim() : document.title.split("|")[0].split("-")[0].trim();
     state.profile = { fullName, url: window.location.href };
     els["profile-name"].textContent = fullName;
     els["profile-url"].textContent = state.profile.url;

@@ -209,7 +209,7 @@ function detectProfile() {
 // (envoyé à N8N pour extraction des infos du profil par un LLM — fonctionnalité déléguée).
 function extractProfileFromPage() {
   const h1 = document.querySelector("h1");
-  const name = h1 ? h1.innerText.trim() : document.title.split("|")[0].split(/\s[-–]\s/)[0].trim();
+  const name = h1 ? h1.innerText.trim() : document.title.split("|")[0].split("-")[0].trim();
   return { fullName: name, url: window.location.href, html: document.documentElement.outerHTML };
 }
 
