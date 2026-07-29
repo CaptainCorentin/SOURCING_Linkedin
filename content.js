@@ -112,29 +112,21 @@
     .status-go { background: #e7f8ee; color: #157a3d; }
     .status-blocked { background: #fdece9; color: #c62828; }
     .status-neutral { background: #e9eaf0; color: #47517a; }
-    .message-preview {
-      background: white; border: 1px solid #e2e6f2; border-radius: 6px; padding: 6px 8px;
-      margin: 0 0 8px; font-size: 11px; line-height: 1.4;
-    }
     .n8n-result {
       margin: 6px 0; padding: 6px 8px; border-radius: 6px; background: #14213d; color: #dfe6fb;
       font-size: 10px; font-family: "Courier New", monospace; white-space: pre-wrap;
       word-break: break-all; max-height: 100px; overflow-y: auto;
     }
     .n8n-result.error { background: #fdece9; color: #c62828; }
-    .toast {
-      margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: #e7f8ee; color: #157a3d;
-      font-size: 12px; font-weight: 700; text-align: center;
-    }
-    .toast.toast-error { background: #fdece9; color: #c62828; }
     #check-error { color: #c62828; font-weight: 700; }
   `;
 
   const state = {
     expanded: false,
     profile: null, // { fullName, url }
-    checkResult: null, // { status, candidateId, message, searchUrl }
-    pendingSend: null // { webhookKey, extraBody }
+    checkResult: null, // { status, candidateId, searchUrl }
+    pendingSend: null, // { webhookKey, extraBody, successMessage }
+    activeActionSection: null // id de la section boutons actuellement affichée (pour le retry)
   };
 
   const host = document.createElement("div");
@@ -196,7 +188,6 @@
 
             <div class="hidden" id="contactable-actions">
               <a class="btn-link" id="contactable-link" target="_blank" rel="noopener">🔗 Voir la fiche Boond</a>
-              <p class="message-preview" id="contactable-message-preview"></p>
               <button class="btn btn-primary" id="contact-custom-btn">✍️ 1er Contact</button>
             </div>
 
@@ -210,7 +201,6 @@
             </div>
 
             <div class="hidden" id="not-found-actions">
-              <p class="message-preview" id="not-found-message-preview"></p>
               <div class="actions-row-col">
                 <button class="btn btn-secondary" id="create-only-btn">➕ Créer la fiche seulement</button>
                 <button class="btn btn-primary" id="create-custom-btn">➕✍️ Créer + 1er contact</button>
@@ -219,9 +209,17 @@
 
             <textarea class="hidden" id="message-textarea" rows="6" placeholder="Écrivez votre message ici..."></textarea>
             <button class="btn btn-primary hidden" id="send-message-btn">Envoyer</button>
+
+            <div class="hidden" id="action-result">
+              <div class="status-banner status-go hidden" id="action-result-success">
+                <span id="action-result-message"></span> <a class="btn-link" id="action-result-link" target="_blank" rel="noopener">Voir la fiche Boond →</a>
+              </div>
+              <div class="status-banner status-blocked hidden" id="action-result-error">
+                ❌ Erreur lors de l'envoi. <button class="btn-link" id="action-retry-btn">Réessayer</button>
+              </div>
+            </div>
           </div>
 
-          <div class="toast hidden" id="toast"></div>
         </div>
       </div>
     </div>
@@ -234,13 +232,14 @@
     "recruiter-select", "n8n-user", "n8n-pass",
     "body", "profile-name", "profile-url", "checking-status", "check-error", "retry-check-btn", "n8n-result",
     "result-panel", "status-banner",
-    "contactable-actions", "contactable-link", "contactable-message-preview",
+    "contactable-actions", "contactable-link",
     "contact-custom-btn",
     "not-contactable-actions", "not-contactable-link",
     "multiple-actions", "multiple-link",
-    "not-found-actions", "not-found-message-preview",
+    "not-found-actions",
     "create-only-btn", "create-custom-btn",
-    "message-textarea", "send-message-btn", "toast"
+    "message-textarea", "send-message-btn",
+    "action-result", "action-result-success", "action-result-error", "action-result-message", "action-result-link", "action-retry-btn"
   ].forEach(id => {
     els[id] = shadow.getElementById(id);
   });
@@ -510,23 +509,25 @@
   }
 
   function renderResultPanel() {
-    const { status, candidateId, message, searchUrl } = state.checkResult;
+    const { status, candidateId, searchUrl } = state.checkResult;
     const banner = els["status-banner"];
 
     closeCompose();
+    hideActionResult();
     els["result-panel"].classList.remove("hidden");
     els["contactable-actions"].classList.add("hidden");
     els["not-contactable-actions"].classList.add("hidden");
     els["multiple-actions"].classList.add("hidden");
     els["not-found-actions"].classList.add("hidden");
     banner.className = "status-banner";
+    state.activeActionSection = null;
 
     if (status === "contactable") {
       banner.classList.add("status-go");
       banner.textContent = "✅ Contactable";
       els["contactable-link"].href = candidateBoondUrl(candidateId);
-      els["contactable-message-preview"].innerHTML = message || "";
       els["contactable-actions"].classList.remove("hidden");
+      state.activeActionSection = "contactable-actions";
     } else if (status === "not_contactable") {
       banner.classList.add("status-blocked");
       banner.textContent = "⛔ Non contactable";
@@ -540,8 +541,8 @@
     } else if (status === "not_found") {
       banner.classList.add("status-neutral");
       banner.textContent = "❌ Absent de Boond";
-      els["not-found-message-preview"].innerHTML = message || "";
       els["not-found-actions"].classList.remove("hidden");
+      state.activeActionSection = "not-found-actions";
     } else {
       banner.classList.add("status-blocked");
       banner.textContent = `Statut inconnu reçu de N8N : ${status}`;
@@ -554,9 +555,9 @@
 
   // --- Étape 2 : envoyer une action ---
 
-  function openCompose(prefillHtml, webhookKey, extraBody, successMessage) {
+  function openCompose(webhookKey, extraBody, successMessage) {
     state.pendingSend = { webhookKey, extraBody, successMessage };
-    els["message-textarea"].value = htmlToText(prefillHtml || "");
+    els["message-textarea"].value = "";
     els["message-textarea"].classList.remove("hidden");
     els["send-message-btn"].classList.remove("hidden");
     els["message-textarea"].focus();
@@ -569,42 +570,59 @@
     els["message-textarea"].value = "";
   }
 
+  // --- Retour unique succès/erreur après envoi (remplace boutons + champ) ---
+
+  function showActionResult(success, message, link) {
+    if (state.activeActionSection) els[state.activeActionSection].classList.add("hidden");
+    closeCompose();
+    els["action-result"].classList.remove("hidden");
+    els["action-result-success"].classList.toggle("hidden", !success);
+    els["action-result-error"].classList.toggle("hidden", success);
+    if (success) {
+      els["action-result-message"].textContent = message || "✅ Terminé";
+      els["action-result-link"].href = link || "#";
+      els["action-result-link"].classList.toggle("hidden", !link);
+    }
+  }
+
+  function hideActionResult() {
+    els["action-result"].classList.add("hidden");
+    els["action-result-success"].classList.add("hidden");
+    els["action-result-error"].classList.add("hidden");
+  }
+
+  function retryAfterError() {
+    hideActionResult();
+    if (state.activeActionSection) els[state.activeActionSection].classList.remove("hidden");
+  }
+
   async function sendAction(webhookKey, body, options = {}) {
-    const { successMessage = "Action envoyée à Boond ✅", triggerBtn = null, copyMessage = null } = options;
+    const { successMessage = "✅ Terminé", triggerBtn = null, copyMessage = null } = options;
     if (triggerBtn) triggerBtn.disabled = true;
     const result = await callN8n(webhookKey, body);
     if (!result) {
       if (triggerBtn) triggerBtn.disabled = false;
-      showToast("❌ Erreur lors de l'envoi — voir le détail ci-dessous, réessaie.", true);
+      showActionResult(false);
       return;
     }
     els["n8n-result"].classList.add("hidden");
-    closeCompose();
+
+    let finalMessage = successMessage;
     if (copyMessage) {
       try {
         await navigator.clipboard.writeText(copyMessage);
-        showToast(`${successMessage} 📋 Message copié dans le presse-papier.`);
-        return;
+        finalMessage += " 📋 Message copié dans le presse-papier.";
       } catch (e) {
-        // Le presse-papier a pu être refusé par le navigateur — on retombe sur le toast simple.
+        // Le presse-papier a pu être refusé par le navigateur — on ignore silencieusement.
       }
     }
-    showToast(successMessage);
-  }
 
-  function htmlToText(html) {
-    return html.replace(/<br\s*\/?>/gi, "\n");
+    const candidateId = webhookKey === "contactExisting" ? body.candidateId : result.candidateId;
+    showActionResult(true, finalMessage, candidateId ? candidateBoondUrl(candidateId) : null);
   }
 
   function textToHtml(text) {
     return text.replace(/\n/g, "<br/>");
-  }
-
-  function showToast(message, isError) {
-    els["toast"].textContent = message;
-    els["toast"].classList.remove("hidden");
-    els["toast"].classList.toggle("toast-error", !!isError);
-    setTimeout(() => els["toast"].classList.add("hidden"), 6000);
   }
 
   // --- Bind ---
@@ -618,7 +636,7 @@
     els["retry-check-btn"].addEventListener("click", checkContactable);
 
     els["contact-custom-btn"].addEventListener("click", () => {
-      openCompose(state.checkResult.message, "contactExisting", { candidateId: state.checkResult.candidateId }, "✅ 1er contact envoyé !");
+      openCompose("contactExisting", { candidateId: state.checkResult.candidateId }, "✅ 1er contact envoyé !");
     });
 
     els["create-only-btn"].addEventListener("click", () => {
@@ -630,12 +648,13 @@
     });
     els["create-custom-btn"].addEventListener("click", () => {
       openCompose(
-        state.checkResult.message,
         "createContact",
         { fullName: state.profile.fullName, url: state.profile.url },
         "✅ Candidat ajouté + 1er contact envoyé !"
       );
     });
+
+    els["action-retry-btn"].addEventListener("click", retryAfterError);
 
     els["send-message-btn"].addEventListener("click", () => {
       if (!els["message-textarea"].value.trim()) {
