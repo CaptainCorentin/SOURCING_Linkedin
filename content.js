@@ -12,8 +12,23 @@
     n8nUrlCreateOnly: "https://wefiit.app.n8n.cloud/webhook/create-candidate-only",
     n8nUrlCreateContact: "https://wefiit.app.n8n.cloud/webhook/create-candidate-and-contact",
     n8nUrlContactExisting: "https://wefiit.app.n8n.cloud/webhook/contact-existing-candidate",
+    n8nUrlListRecruiters: "https://wefiit.app.n8n.cloud/webhook/list-recruiters",
     n8nUser: "WefiiT-extension-sourcing-linkedin"
   };
+
+  // Dernier recours si le webhook "liste recruteurs" est injoignable ET qu'aucune
+  // liste n'a jamais été mise en cache (ex: tout premier lancement, hors ligne).
+  const FALLBACK_RECRUITER_NAMES = [
+    "Léa Crinon",
+    "Léane Gourcy",
+    "Louis Dalleau",
+    "Corentin Barczyk",
+    "Antoine Piatkowski",
+    "Hermine Merveilleux Du Vignaux",
+    "Pablo Nemejanski",
+    "Victor Gody",
+    "Mathilde Perrin"
+  ];
 
   // Avatar en marinière (bandes navy/blanc) + touche orange WeFiiT, en SVG inline
   // pour ne dépendre d'aucune image externe ni web_accessible_resources.
@@ -90,8 +105,6 @@
       display: inline-block; color: #002882; font-size: 12px; font-weight: 700;
       text-decoration: none; margin-bottom: 6px;
     }
-    .actions-row { display: flex; gap: 6px; }
-    .actions-row .btn { margin-top: 0; }
     .actions-row-col { display: flex; flex-direction: column; gap: 6px; }
     .status-banner {
       padding: 6px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; margin-bottom: 8px;
@@ -147,6 +160,10 @@
         </div>
 
         <div class="settings hidden" id="settings">
+          <label class="field-label">Recruteur</label>
+          <select id="recruiter-select">
+            <option value="">— Choisir —</option>
+          </select>
           <label class="field-label">URL webhook — Check profil</label>
           <input type="text" id="n8n-url-check" />
           <label class="field-label">URL webhook — Créer candidat seul</label>
@@ -155,6 +172,8 @@
           <input type="text" id="n8n-url-create-contact" />
           <label class="field-label">URL webhook — Contacter candidat existant</label>
           <input type="text" id="n8n-url-contact-existing" />
+          <label class="field-label">URL webhook — Liste recruteurs</label>
+          <input type="text" id="n8n-url-list-recruiters" />
           <label class="field-label">Utilisateur (Basic Auth)</label>
           <input type="text" id="n8n-user" autocomplete="off" />
           <label class="field-label">Mot de passe (Basic Auth)</label>
@@ -178,10 +197,7 @@
             <div class="hidden" id="contactable-actions">
               <a class="btn-link" id="contactable-link" target="_blank" rel="noopener">🔗 Voir la fiche Boond</a>
               <p class="message-preview" id="contactable-message-preview"></p>
-              <div class="actions-row">
-                <button class="btn btn-secondary" id="contact-standard-btn">✉️ 1er Contact standard</button>
-                <button class="btn btn-secondary" id="contact-custom-btn">✍️ Champs à compléter</button>
-              </div>
+              <button class="btn btn-primary" id="contact-custom-btn">✍️ 1er Contact</button>
             </div>
 
             <div class="hidden" id="not-contactable-actions">
@@ -197,8 +213,7 @@
               <p class="message-preview" id="not-found-message-preview"></p>
               <div class="actions-row-col">
                 <button class="btn btn-secondary" id="create-only-btn">➕ Créer la fiche seulement</button>
-                <button class="btn btn-secondary" id="create-standard-btn">➕✉️ Créer + 1er Contact standard</button>
-                <button class="btn btn-secondary" id="create-custom-btn">➕✍️ Créer + 1er contact personnalisé</button>
+                <button class="btn btn-primary" id="create-custom-btn">➕✍️ Créer + 1er contact</button>
               </div>
             </div>
 
@@ -215,16 +230,16 @@
   const els = {};
   [
     "bubble", "avatar-btn", "panel", "settings-btn", "close-btn",
-    "settings", "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing",
-    "n8n-user", "n8n-pass",
+    "settings", "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing", "n8n-url-list-recruiters",
+    "recruiter-select", "n8n-user", "n8n-pass",
     "body", "profile-name", "profile-url", "checking-status", "check-error", "retry-check-btn", "n8n-result",
     "result-panel", "status-banner",
     "contactable-actions", "contactable-link", "contactable-message-preview",
-    "contact-standard-btn", "contact-custom-btn",
+    "contact-custom-btn",
     "not-contactable-actions", "not-contactable-link",
     "multiple-actions", "multiple-link",
     "not-found-actions", "not-found-message-preview",
-    "create-only-btn", "create-standard-btn", "create-custom-btn",
+    "create-only-btn", "create-custom-btn",
     "message-textarea", "send-message-btn", "toast"
   ].forEach(id => {
     els[id] = shadow.getElementById(id);
@@ -235,10 +250,12 @@
   async function init() {
     loadPosition();
     detectProfile();
+    await populateRecruiterSelectFromCache();
     await loadSettings();
     bindEvents();
     bindDrag();
     checkContactable();
+    refreshRecruiterList();
   }
 
   // --- Position (draggable, persistée) ---
@@ -304,17 +321,70 @@
 
   // --- Réglages N8N (partagés avec le popup) ---
 
+  // Rend les options du <select> à partir d'une liste de noms, en préservant
+  // la sélection en cours si elle existe toujours dans la nouvelle liste.
+  function renderRecruiterOptions(names) {
+    const previousValue = els["recruiter-select"].value;
+    els["recruiter-select"].innerHTML = '<option value="">— Choisir —</option>';
+    names.forEach(name => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      els["recruiter-select"].appendChild(opt);
+    });
+    if (previousValue) els["recruiter-select"].value = previousValue;
+  }
+
+  // Affiche immédiatement la dernière liste connue (cache local, sinon liste de
+  // secours en dur) — pas d'attente réseau au démarrage.
+  function populateRecruiterSelectFromCache() {
+    return new Promise(resolve => {
+      chrome.storage.local.get(["cachedRecruiterList"], ({ cachedRecruiterList }) => {
+        renderRecruiterOptions(cachedRecruiterList && cachedRecruiterList.length ? cachedRecruiterList : FALLBACK_RECRUITER_NAMES);
+        resolve();
+      });
+    });
+  }
+
+  // Rafraîchit la liste depuis N8N en arrière-plan (silencieux, sans bloquer l'UI) —
+  // met à jour le cache et réaffiche si la liste a été récupérée avec succès. Ainsi,
+  // ajouter/retirer un recruteur ne nécessite qu'une modification côté N8N, jamais
+  // de nouvelle version de l'extension.
+  async function refreshRecruiterList() {
+    const url = getN8nUrl("listRecruiters");
+    if (!url) return;
+    const user = els["n8n-user"].value;
+    const pass = els["n8n-pass"].value;
+    const headers = { "Content-Type": "application/json" };
+    if (user || pass) headers["Authorization"] = "Basic " + btoa(`${user}:${pass}`);
+
+    chrome.runtime.sendMessage({ type: "N8N_CALL", url, headers, body: {} }, response => {
+      if (!response || !response.ok) return;
+      try {
+        const parsed = JSON.parse(response.text);
+        if (Array.isArray(parsed.recruiters) && parsed.recruiters.length) {
+          chrome.storage.local.set({ cachedRecruiterList: parsed.recruiters });
+          renderRecruiterOptions(parsed.recruiters);
+        }
+      } catch (e) {
+        // Liste inchangée en cas de réponse invalide — on garde le cache/fallback affiché.
+      }
+    });
+  }
+
   function loadSettings() {
     return new Promise(resolve => {
       chrome.storage.local.get(
-        ["n8nUrlCheck", "n8nUrlCreateOnly", "n8nUrlCreateContact", "n8nUrlContactExisting", "n8nUser", "n8nPass"],
+        ["n8nUrlCheck", "n8nUrlCreateOnly", "n8nUrlCreateContact", "n8nUrlContactExisting", "n8nUrlListRecruiters", "n8nUser", "n8nPass", "recruiterName"],
         settings => {
           els["n8n-url-check"].value = settings.n8nUrlCheck || DEFAULTS.n8nUrlCheck;
           els["n8n-url-create-only"].value = settings.n8nUrlCreateOnly || DEFAULTS.n8nUrlCreateOnly;
           els["n8n-url-create-contact"].value = settings.n8nUrlCreateContact || DEFAULTS.n8nUrlCreateContact;
           els["n8n-url-contact-existing"].value = settings.n8nUrlContactExisting || DEFAULTS.n8nUrlContactExisting;
+          els["n8n-url-list-recruiters"].value = settings.n8nUrlListRecruiters || DEFAULTS.n8nUrlListRecruiters;
           els["n8n-user"].value = settings.n8nUser || DEFAULTS.n8nUser;
           els["n8n-pass"].value = settings.n8nPass || ""; // jamais de valeur par défaut ici
+          els["recruiter-select"].value = settings.recruiterName || "";
           resolve();
         }
       );
@@ -327,7 +397,9 @@
       n8nUrlCreateOnly: els["n8n-url-create-only"].value.trim(),
       n8nUrlCreateContact: els["n8n-url-create-contact"].value.trim(),
       n8nUrlContactExisting: els["n8n-url-contact-existing"].value.trim(),
-      n8nUser: els["n8n-user"].value
+      n8nUrlListRecruiters: els["n8n-url-list-recruiters"].value.trim(),
+      n8nUser: els["n8n-user"].value,
+      recruiterName: els["recruiter-select"].value
     };
     // Ne jamais écraser un mot de passe déjà enregistré par une valeur vide
     // (ex: interférence d'un gestionnaire de mots de passe sur le champ).
@@ -340,7 +412,8 @@
       check: "n8n-url-check",
       createOnly: "n8n-url-create-only",
       createContact: "n8n-url-create-contact",
-      contactExisting: "n8n-url-contact-existing"
+      contactExisting: "n8n-url-contact-existing",
+      listRecruiters: "n8n-url-list-recruiters"
     }[webhookKey];
     return els[fieldId].value.trim();
   }
@@ -360,8 +433,10 @@
       const headers = { "Content-Type": "application/json" };
       if (user || pass) headers["Authorization"] = "Basic " + btoa(`${user}:${pass}`);
 
+      const bodyWithRecruiter = { ...body, recruiterName: els["recruiter-select"].value };
+
       showN8nResult("Envoi en cours...", false);
-      chrome.runtime.sendMessage({ type: "N8N_CALL", url, headers, body }, response => {
+      chrome.runtime.sendMessage({ type: "N8N_CALL", url, headers, body: bodyWithRecruiter }, response => {
         if (!response) {
           showN8nResult("Erreur : pas de réponse de l'extension.", true);
           resolve(null);
@@ -392,7 +467,7 @@
 
   function detectProfile() {
     const h1 = document.querySelector("h1");
-    const fullName = h1 ? h1.innerText.trim() : document.title.split("|")[0].split("-")[0].trim();
+    const fullName = h1 ? h1.innerText.trim() : document.title.split("|")[0].split(/\s[-–]\s/)[0].trim();
     state.profile = { fullName, url: window.location.href };
     els["profile-name"].textContent = fullName;
     els["profile-url"].textContent = state.profile.url;
@@ -542,17 +617,6 @@
     });
     els["retry-check-btn"].addEventListener("click", checkContactable);
 
-    els["contact-standard-btn"].addEventListener("click", () => {
-      sendAction(
-        "contactExisting",
-        { candidateId: state.checkResult.candidateId, message: state.checkResult.message },
-        {
-          successMessage: "✅ 1er contact envoyé !",
-          triggerBtn: els["contact-standard-btn"],
-          copyMessage: htmlToText(state.checkResult.message || "")
-        }
-      );
-    });
     els["contact-custom-btn"].addEventListener("click", () => {
       openCompose(state.checkResult.message, "contactExisting", { candidateId: state.checkResult.candidateId }, "✅ 1er contact envoyé !");
     });
@@ -562,17 +626,6 @@
         "createOnly",
         { fullName: state.profile.fullName, url: state.profile.url },
         { successMessage: "✅ Candidat ajouté sur Boond !", triggerBtn: els["create-only-btn"] }
-      );
-    });
-    els["create-standard-btn"].addEventListener("click", () => {
-      sendAction(
-        "createContact",
-        { fullName: state.profile.fullName, url: state.profile.url, message: state.checkResult.message },
-        {
-          successMessage: "✅ Candidat ajouté + 1er contact envoyé !",
-          triggerBtn: els["create-standard-btn"],
-          copyMessage: htmlToText(state.checkResult.message || "")
-        }
       );
     });
     els["create-custom-btn"].addEventListener("click", () => {
@@ -599,10 +652,11 @@
     });
 
     [
-      "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing",
+      "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing", "n8n-url-list-recruiters",
       "n8n-user", "n8n-pass"
     ].forEach(id => {
       els[id].addEventListener("input", saveSettings);
     });
+    els["recruiter-select"].addEventListener("change", saveSettings);
   }
 })();

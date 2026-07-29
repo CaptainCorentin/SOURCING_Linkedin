@@ -6,8 +6,23 @@ const DEFAULTS = {
   n8nUrlCreateOnly: "https://wefiit.app.n8n.cloud/webhook/create-candidate-only",
   n8nUrlCreateContact: "https://wefiit.app.n8n.cloud/webhook/create-candidate-and-contact",
   n8nUrlContactExisting: "https://wefiit.app.n8n.cloud/webhook/contact-existing-candidate",
+  n8nUrlListRecruiters: "https://wefiit.app.n8n.cloud/webhook/list-recruiters",
   n8nUser: "WefiiT-extension-sourcing-linkedin"
 };
+
+// Dernier recours si le webhook "liste recruteurs" est injoignable ET qu'aucune
+// liste n'a jamais été mise en cache (ex: tout premier lancement, hors ligne).
+const FALLBACK_RECRUITER_NAMES = [
+  "Léa Crinon",
+  "Léane Gourcy",
+  "Louis Dalleau",
+  "Corentin Barczyk",
+  "Antoine Piatkowski",
+  "Hermine Merveilleux Du Vignaux",
+  "Pablo Nemejanski",
+  "Victor Gody",
+  "Mathilde Perrin"
+];
 
 // État en mémoire (rien n'est persisté, tout se réinitialise à la fermeture du popup).
 const state = {
@@ -18,19 +33,22 @@ const state = {
 
 const els = {};
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   cacheElements();
   populateDemoSelect();
+  await populateRecruiterSelectFromCache();
   bindEvents();
-  loadN8nSettings();
+  await loadN8nSettings();
   detectProfile();
+  refreshRecruiterList();
 });
 
 function cacheElements() {
   [
     "not-linkedin", "demo-select", "demo-load-btn",
     "profile-view", "profile-name", "profile-url", "redetect-btn",
-    "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing",
+    "recruiter-select",
+    "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing", "n8n-url-list-recruiters",
     "n8n-user", "n8n-pass", "check-btn", "n8n-result",
     "result-panel", "status-banner",
     "contactable-actions", "contactable-link", "contactable-message-preview",
@@ -47,18 +65,59 @@ function cacheElements() {
 
 // --- Connexion N8N (URLs + Basic Auth stockés localement, jamais dans le code) ---
 
+// Rend les options du <select> à partir d'une liste de noms, en préservant
+// la sélection en cours si elle existe toujours dans la nouvelle liste.
+function renderRecruiterOptions(names) {
+  const previousValue = els["recruiter-select"].value;
+  els["recruiter-select"].innerHTML = '<option value="">— Choisir —</option>';
+  names.forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    els["recruiter-select"].appendChild(opt);
+  });
+  if (previousValue) els["recruiter-select"].value = previousValue;
+}
+
+// Affiche immédiatement la dernière liste connue (cache local, sinon liste de
+// secours en dur) — pas d'attente réseau au démarrage.
+function populateRecruiterSelectFromCache() {
+  return new Promise(resolve => {
+    chrome.storage.local.get(["cachedRecruiterList"], ({ cachedRecruiterList }) => {
+      renderRecruiterOptions(cachedRecruiterList && cachedRecruiterList.length ? cachedRecruiterList : FALLBACK_RECRUITER_NAMES);
+      resolve();
+    });
+  });
+}
+
+// Rafraîchit la liste depuis N8N en arrière-plan (silencieux) — met à jour le
+// cache et réaffiche si récupérée avec succès. Ajouter/retirer un recruteur ne
+// nécessite ainsi qu'une modification côté N8N, jamais de nouvelle version.
+async function refreshRecruiterList() {
+  const result = await callN8n("listRecruiters", {});
+  if (result && Array.isArray(result.recruiters) && result.recruiters.length) {
+    chrome.storage.local.set({ cachedRecruiterList: result.recruiters });
+    renderRecruiterOptions(result.recruiters);
+  }
+}
+
 function loadN8nSettings() {
-  chrome.storage.local.get(
-    ["n8nUrlCheck", "n8nUrlCreateOnly", "n8nUrlCreateContact", "n8nUrlContactExisting", "n8nUser", "n8nPass"],
-    settings => {
-      els["n8n-url-check"].value = settings.n8nUrlCheck || DEFAULTS.n8nUrlCheck;
-      els["n8n-url-create-only"].value = settings.n8nUrlCreateOnly || DEFAULTS.n8nUrlCreateOnly;
-      els["n8n-url-create-contact"].value = settings.n8nUrlCreateContact || DEFAULTS.n8nUrlCreateContact;
-      els["n8n-url-contact-existing"].value = settings.n8nUrlContactExisting || DEFAULTS.n8nUrlContactExisting;
-      els["n8n-user"].value = settings.n8nUser || DEFAULTS.n8nUser;
-      els["n8n-pass"].value = settings.n8nPass || ""; // jamais de valeur par défaut ici
-    }
-  );
+  return new Promise(resolve => {
+    chrome.storage.local.get(
+      ["n8nUrlCheck", "n8nUrlCreateOnly", "n8nUrlCreateContact", "n8nUrlContactExisting", "n8nUrlListRecruiters", "n8nUser", "n8nPass", "recruiterName"],
+      settings => {
+        els["n8n-url-check"].value = settings.n8nUrlCheck || DEFAULTS.n8nUrlCheck;
+        els["n8n-url-create-only"].value = settings.n8nUrlCreateOnly || DEFAULTS.n8nUrlCreateOnly;
+        els["n8n-url-create-contact"].value = settings.n8nUrlCreateContact || DEFAULTS.n8nUrlCreateContact;
+        els["n8n-url-contact-existing"].value = settings.n8nUrlContactExisting || DEFAULTS.n8nUrlContactExisting;
+        els["n8n-url-list-recruiters"].value = settings.n8nUrlListRecruiters || DEFAULTS.n8nUrlListRecruiters;
+        els["n8n-user"].value = settings.n8nUser || DEFAULTS.n8nUser;
+        els["n8n-pass"].value = settings.n8nPass || ""; // jamais de valeur par défaut ici
+        els["recruiter-select"].value = settings.recruiterName || "";
+        resolve();
+      }
+    );
+  });
 }
 
 function saveN8nSettings() {
@@ -67,7 +126,9 @@ function saveN8nSettings() {
     n8nUrlCreateOnly: els["n8n-url-create-only"].value.trim(),
     n8nUrlCreateContact: els["n8n-url-create-contact"].value.trim(),
     n8nUrlContactExisting: els["n8n-url-contact-existing"].value.trim(),
-    n8nUser: els["n8n-user"].value
+    n8nUrlListRecruiters: els["n8n-url-list-recruiters"].value.trim(),
+    n8nUser: els["n8n-user"].value,
+    recruiterName: els["recruiter-select"].value
   };
   // Ne jamais écraser un mot de passe déjà enregistré par une valeur vide
   // (ex: interférence d'un gestionnaire de mots de passe sur le champ).
@@ -80,7 +141,8 @@ function getN8nUrl(webhookKey) {
     check: "n8n-url-check",
     createOnly: "n8n-url-create-only",
     createContact: "n8n-url-create-contact",
-    contactExisting: "n8n-url-contact-existing"
+    contactExisting: "n8n-url-contact-existing",
+    listRecruiters: "n8n-url-list-recruiters"
   }[webhookKey];
   return els[fieldId].value.trim();
 }
@@ -107,7 +169,7 @@ async function callN8n(webhookKey, body) {
     const response = await fetch(url, {
       method: "POST",
       headers: n8nHeaders(),
-      body: JSON.stringify(body)
+      body: JSON.stringify({ ...body, recruiterName: els["recruiter-select"].value })
     });
     const text = await response.text();
     showN8nResult(`HTTP ${response.status}\n${text}`, !response.ok);
@@ -175,11 +237,12 @@ function bindEvents() {
   });
 
   [
-    "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing",
+    "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing", "n8n-url-list-recruiters",
     "n8n-user", "n8n-pass"
   ].forEach(id => {
     els[id].addEventListener("input", saveN8nSettings);
   });
+  els["recruiter-select"].addEventListener("change", saveN8nSettings);
 }
 
 // --- Détection du profil LinkedIn actif ---
@@ -209,7 +272,7 @@ function detectProfile() {
 // (envoyé à N8N pour extraction des infos du profil par un LLM — fonctionnalité déléguée).
 function extractProfileFromPage() {
   const h1 = document.querySelector("h1");
-  const name = h1 ? h1.innerText.trim() : document.title.split("|")[0].split("-")[0].trim();
+  const name = h1 ? h1.innerText.trim() : document.title.split("|")[0].split(/\s[-–]\s/)[0].trim();
   return { fullName: name, url: window.location.href, html: document.documentElement.outerHTML };
 }
 

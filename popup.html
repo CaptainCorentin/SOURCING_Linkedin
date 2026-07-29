@@ -36,6 +36,12 @@
       <details class="simulate-panel" id="n8n-settings">
         <summary>🔗 Connexion N8N</summary>
         <div class="field-row">
+          <label class="field-label" for="recruiter-select">Recruteur</label>
+          <select id="recruiter-select">
+            <option value="">— Choisir —</option>
+          </select>
+        </div>
+        <div class="field-row">
           <label class="field-label" for="n8n-url-check">URL webhook — Check profil</label>
           <input type="text" id="n8n-url-check" placeholder="https://.../webhook/check-linkedin-profile" />
         </div>
@@ -50,6 +56,10 @@
         <div class="field-row">
           <label class="field-label" for="n8n-url-contact-existing">URL webhook — Contacter candidat existant</label>
           <input type="text" id="n8n-url-contact-existing" placeholder="https://.../webhook/contact-existing-candidate" />
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="n8n-url-list-recruiters">URL webhook — Liste recruteurs</label>
+          <input type="text" id="n8n-url-list-recruiters" placeholder="https://.../webhook/list-recruiters" />
         </div>
         <div class="field-row">
           <label class="field-label" for="n8n-user">Utilisateur (Basic Auth)</label>
