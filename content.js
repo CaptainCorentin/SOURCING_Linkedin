@@ -1,0 +1,681 @@
+// Bulle flottante WeFiiT — injectée uniquement sur les pages de profil LinkedIn
+// (linkedin.com/in/...), jamais dans le fil d'actualité ni la recherche (cf. manifest.json).
+(function () {
+  if (!/^\/in\//.test(window.location.pathname)) return;
+  if (document.getElementById("wefiit-sourcing-bubble-host")) return; // évite les doublons (SPA navigation)
+
+  // Valeurs par défaut non sensibles (URLs de webhook + utilisateur) : pré-remplies pour
+  // éviter de les ressaisir à chaque install, mais SANS le mot de passe — celui-ci n'est
+  // jamais mis en dur et reste à saisir manuellement, stocké uniquement en local.
+  const DEFAULTS = {
+    n8nUrlCheck: "https://wefiit.app.n8n.cloud/webhook/check-linkedin-profile",
+    n8nUrlCreateOnly: "https://wefiit.app.n8n.cloud/webhook/create-candidate-only",
+    n8nUrlCreateContact: "https://wefiit.app.n8n.cloud/webhook/create-candidate-and-contact",
+    n8nUrlContactExisting: "https://wefiit.app.n8n.cloud/webhook/contact-existing-candidate",
+    n8nUrlListRecruiters: "https://wefiit.app.n8n.cloud/webhook/list-recruiters",
+    n8nUser: "WefiiT-extension-sourcing-linkedin"
+  };
+
+  // Dernier recours si le webhook "liste recruteurs" est injoignable ET qu'aucune
+  // liste n'a jamais été mise en cache (ex: tout premier lancement, hors ligne).
+  const FALLBACK_RECRUITER_NAMES = [
+    "Léa Crinon",
+    "Léane Gourcy",
+    "Louis Dalleau",
+    "Corentin Barczyk",
+    "Antoine Piatkowski",
+    "Hermine Merveilleux Du Vignaux",
+    "Pablo Nemejanski",
+    "Victor Gody",
+    "Mathilde Perrin"
+  ];
+
+  // Avatar en marinière (bandes navy/blanc) + touche orange WeFiiT, en SVG inline
+  // pour ne dépendre d'aucune image externe ni web_accessible_resources.
+  const AVATAR_SVG = `
+    <svg viewBox="0 0 64 64" width="34" height="34" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="32" cy="32" r="32" fill="#002882"/>
+      <clipPath id="wefiit-body-clip">
+        <path d="M12 60 C12 42 19 35 32 35 C45 35 52 42 52 60 Z"/>
+      </clipPath>
+      <g clip-path="url(#wefiit-body-clip)">
+        <rect x="8" y="33" width="48" height="30" fill="#ffffff"/>
+        <rect x="8" y="33" width="48" height="4.5" fill="#002882"/>
+        <rect x="8" y="42" width="48" height="4.5" fill="#002882"/>
+        <rect x="8" y="51" width="48" height="4.5" fill="#002882"/>
+        <rect x="8" y="60" width="48" height="4.5" fill="#002882"/>
+      </g>
+      <circle cx="32" cy="23" r="10.5" fill="#f0c8a0"/>
+      <circle cx="32" cy="36.5" r="3" fill="#f98f03"/>
+    </svg>
+  `;
+
+  const STYLE = `
+    :host { all: initial; }
+    * { box-sizing: border-box; font-family: Calibri, Arial, sans-serif; }
+    .bubble { position: relative; }
+    .avatar-btn {
+      width: 48px; height: 48px; border-radius: 50%; border: 2px solid white;
+      background: #002882; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      display: flex; align-items: center; justify-content: center;
+      cursor: grab; padding: 0; touch-action: none;
+    }
+    .bubble.is-expanded .avatar-btn { display: none; }
+    .panel {
+      position: absolute; bottom: 0; right: 0; width: 320px; max-height: 520px;
+      overflow-y: auto; background: #f2f5ff; border-radius: 10px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.35); color: #14213d; font-size: 13px;
+    }
+    .panel.hidden, .hidden { display: none !important; }
+    .panel-header {
+      background: #002882; color: white; padding: 10px 12px; border-radius: 10px 10px 0 0;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .panel-title { font-weight: 700; font-size: 14px; }
+    .title-dot { color: #f98f03; }
+    .panel-header-actions { display: flex; gap: 4px; }
+    .icon-btn {
+      background: none; border: none; color: white; cursor: pointer; font-size: 14px;
+      padding: 2px 4px; border-radius: 4px;
+    }
+    .icon-btn:hover { background: rgba(255,255,255,0.15); }
+    .body, .settings { padding: 10px 12px; }
+    .profile-card { margin-bottom: 8px; }
+    .profile-name { font-weight: 700; font-size: 14px; color: #002882; }
+    .profile-url { font-size: 10px; color: #5a6484; word-break: break-all; margin-top: 1px; }
+    .field-label { display: block; font-size: 11px; font-weight: 700; color: #002882; margin: 8px 0 3px; }
+    input, textarea {
+      width: 100%; padding: 6px 8px; border: 1px solid #c9d2ec; border-radius: 6px;
+      font-size: 12px; font-family: inherit; color: #14213d; background: white;
+    }
+    textarea { margin-top: 6px; resize: vertical; }
+    .hint { font-size: 11px; color: #566; margin: 4px 0 0; }
+    .btn {
+      border: none; border-radius: 6px; padding: 8px 10px; font-size: 12px; font-weight: 700;
+      font-family: inherit; cursor: pointer; width: 100%; margin-top: 6px;
+    }
+    .btn-primary { background: #f98f03; color: white; }
+    .btn-primary:hover { background: #e8572a; }
+    .btn-secondary { background: white; color: #002882; border: 1px solid #c9d2ec; }
+    .btn-secondary:hover { background: #f2f5ff; }
+    .btn:focus { outline: none; }
+    .btn:focus-visible { box-shadow: 0 0 0 2px rgba(0,40,130,0.45); }
+    .btn:disabled { opacity: 0.6; cursor: default; }
+    .btn-link {
+      display: inline-block; color: #002882; font-size: 12px; font-weight: 700;
+      text-decoration: none; margin-bottom: 6px;
+    }
+    .actions-row-col { display: flex; flex-direction: column; gap: 6px; }
+    .status-banner {
+      padding: 6px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; margin-bottom: 8px;
+    }
+    .status-go { background: #e7f8ee; color: #157a3d; }
+    .status-blocked { background: #fdece9; color: #c62828; }
+    .status-neutral { background: #e9eaf0; color: #47517a; }
+    .n8n-result {
+      margin: 6px 0; padding: 6px 8px; border-radius: 6px; background: #14213d; color: #dfe6fb;
+      font-size: 10px; font-family: "Courier New", monospace; white-space: pre-wrap;
+      word-break: break-all; max-height: 100px; overflow-y: auto;
+    }
+    .n8n-result.error { background: #fdece9; color: #c62828; }
+    #check-error { color: #c62828; font-weight: 700; }
+  `;
+
+  const state = {
+    expanded: false,
+    profile: null, // { fullName, url }
+    checkResult: null, // { status, candidateId, searchUrl }
+    pendingSend: null, // { webhookKey, extraBody, successMessage }
+    activeActionSection: null // id de la section boutons actuellement affichée (pour le retry)
+  };
+
+  const host = document.createElement("div");
+  host.id = "wefiit-sourcing-bubble-host";
+  host.style.position = "fixed";
+  host.style.zIndex = "2147483647";
+  document.body.appendChild(host);
+
+  const shadow = host.attachShadow({ mode: "open" });
+  shadow.innerHTML = `
+    <style>${STYLE}</style>
+    <div class="bubble" id="bubble">
+      <button class="avatar-btn" id="avatar-btn" title="Sourcing LinkedIn WeFiiT" aria-label="Ouvrir">
+        ${AVATAR_SVG}
+      </button>
+      <div class="panel hidden" id="panel">
+        <div class="panel-header">
+          <span class="panel-title">Sourcing LinkedIn<span class="title-dot">.</span></span>
+          <div class="panel-header-actions">
+            <button class="icon-btn" id="settings-btn" title="Réglages N8N">⚙️</button>
+            <button class="icon-btn" id="close-btn" title="Fermer">✕</button>
+          </div>
+        </div>
+
+        <div class="settings hidden" id="settings">
+          <label class="field-label">Recruteur</label>
+          <select id="recruiter-select">
+            <option value="">— Choisir —</option>
+          </select>
+          <label class="field-label">URL webhook — Check profil</label>
+          <input type="text" id="n8n-url-check" />
+          <label class="field-label">URL webhook — Créer candidat seul</label>
+          <input type="text" id="n8n-url-create-only" />
+          <label class="field-label">URL webhook — Créer candidat + 1er contact</label>
+          <input type="text" id="n8n-url-create-contact" />
+          <label class="field-label">URL webhook — Contacter candidat existant</label>
+          <input type="text" id="n8n-url-contact-existing" />
+          <label class="field-label">URL webhook — Liste recruteurs</label>
+          <input type="text" id="n8n-url-list-recruiters" />
+          <label class="field-label">Utilisateur (Basic Auth)</label>
+          <input type="text" id="n8n-user" autocomplete="off" />
+          <label class="field-label">Mot de passe (Basic Auth)</label>
+          <input type="text" id="n8n-pass" autocomplete="off" spellcheck="false" />
+          <p class="hint">Stocké localement (chrome.storage.local), partagé avec le popup de l'extension.</p>
+        </div>
+
+        <div class="body" id="body">
+          <div class="profile-card">
+            <div class="profile-name" id="profile-name">—</div>
+            <div class="profile-url" id="profile-url">—</div>
+          </div>
+
+          <p class="hint" id="checking-status">🔍 Vérification en cours...</p>
+          <p class="hint hidden" id="check-error">⚠️ Vérification impossible. <button class="btn-link" id="retry-check-btn">Réessayer</button></p>
+          <pre class="n8n-result hidden" id="n8n-result"></pre>
+
+          <div class="result-panel hidden" id="result-panel">
+            <div class="status-banner" id="status-banner"></div>
+
+            <div class="hidden" id="contactable-actions">
+              <a class="btn-link" id="contactable-link" target="_blank" rel="noopener">🔗 Voir la fiche Boond</a>
+              <button class="btn btn-primary" id="contact-custom-btn">✍️ 1er Contact</button>
+            </div>
+
+            <div class="hidden" id="not-contactable-actions">
+              <p class="hint">Ce profil n'est pas contactable pour le moment. 😕</p>
+              <a class="btn-link" id="not-contactable-link" target="_blank" rel="noopener">🔗 Voir la fiche Boond</a>
+            </div>
+
+            <div class="hidden" id="multiple-actions">
+              <a class="btn-link" id="multiple-link" target="_blank" rel="noopener">🔗 Voir les résultats sur Boond</a>
+            </div>
+
+            <div class="hidden" id="not-found-actions">
+              <div class="actions-row-col">
+                <button class="btn btn-secondary" id="create-only-btn">➕ Créer la fiche seulement</button>
+                <button class="btn btn-primary" id="create-custom-btn">➕✍️ Créer + 1er contact</button>
+              </div>
+            </div>
+
+            <textarea class="hidden" id="message-textarea" rows="6" placeholder="Écrivez votre message ici..."></textarea>
+            <button class="btn btn-primary hidden" id="send-message-btn">Envoyer</button>
+
+            <div class="hidden" id="action-result">
+              <div class="status-banner status-go hidden" id="action-result-success">
+                <span id="action-result-message"></span> <a class="btn-link" id="action-result-link" target="_blank" rel="noopener">Voir la fiche Boond →</a>
+              </div>
+              <div class="status-banner status-blocked hidden" id="action-result-error">
+                ❌ Erreur lors de l'envoi. <button class="btn-link" id="action-retry-btn">Réessayer</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  `;
+
+  const els = {};
+  [
+    "bubble", "avatar-btn", "panel", "settings-btn", "close-btn",
+    "settings", "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing", "n8n-url-list-recruiters",
+    "recruiter-select", "n8n-user", "n8n-pass",
+    "body", "profile-name", "profile-url", "checking-status", "check-error", "retry-check-btn", "n8n-result",
+    "result-panel", "status-banner",
+    "contactable-actions", "contactable-link",
+    "contact-custom-btn",
+    "not-contactable-actions", "not-contactable-link",
+    "multiple-actions", "multiple-link",
+    "not-found-actions",
+    "create-only-btn", "create-custom-btn",
+    "message-textarea", "send-message-btn",
+    "action-result", "action-result-success", "action-result-error", "action-result-message", "action-result-link", "action-retry-btn"
+  ].forEach(id => {
+    els[id] = shadow.getElementById(id);
+  });
+
+  init();
+
+  async function init() {
+    loadPosition();
+    detectProfile();
+    await populateRecruiterSelectFromCache();
+    await loadSettings();
+    bindEvents();
+    bindDrag();
+    checkContactable();
+    refreshRecruiterList();
+  }
+
+  // --- Position (draggable, persistée) ---
+
+  function loadPosition() {
+    chrome.storage.local.get(["bubblePosition"], ({ bubblePosition }) => {
+      const pos = bubblePosition || { top: "50%", left: null, right: "24px" };
+      host.style.top = pos.top;
+      if (pos.left) {
+        host.style.left = pos.left;
+        host.style.right = "";
+      } else {
+        host.style.right = pos.right || "24px";
+      }
+    });
+  }
+
+  function savePosition() {
+    const rect = host.getBoundingClientRect();
+    chrome.storage.local.set({
+      bubblePosition: { top: `${rect.top}px`, left: `${rect.left}px`, right: null }
+    });
+  }
+
+  function bindDrag() {
+    let dragging = false;
+    let moved = false;
+    let startX, startY, startTop, startLeft;
+
+    els["avatar-btn"].addEventListener("pointerdown", e => {
+      if (state.expanded) return; // on ne drag que la bulle repliée
+      dragging = true;
+      moved = false;
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = host.getBoundingClientRect();
+      startTop = rect.top;
+      startLeft = rect.left;
+      e.preventDefault();
+    });
+
+    window.addEventListener("pointermove", e => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+      if (!moved) return;
+      host.style.left = `${startLeft + dx}px`;
+      host.style.right = "";
+      host.style.top = `${startTop + dy}px`;
+    });
+
+    window.addEventListener("pointerup", () => {
+      if (!dragging) return;
+      dragging = false;
+      if (moved) {
+        savePosition();
+      } else {
+        toggleExpanded();
+      }
+    });
+  }
+
+  // --- Réglages N8N (partagés avec le popup) ---
+
+  // Rend les options du <select> à partir d'une liste de noms, en préservant
+  // la sélection en cours si elle existe toujours dans la nouvelle liste.
+  function renderRecruiterOptions(names) {
+    const previousValue = els["recruiter-select"].value;
+    els["recruiter-select"].innerHTML = '<option value="">— Choisir —</option>';
+    names.forEach(name => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      els["recruiter-select"].appendChild(opt);
+    });
+    if (previousValue) els["recruiter-select"].value = previousValue;
+  }
+
+  // Affiche immédiatement la dernière liste connue (cache local, sinon liste de
+  // secours en dur) — pas d'attente réseau au démarrage.
+  function populateRecruiterSelectFromCache() {
+    return new Promise(resolve => {
+      chrome.storage.local.get(["cachedRecruiterList"], ({ cachedRecruiterList }) => {
+        renderRecruiterOptions(cachedRecruiterList && cachedRecruiterList.length ? cachedRecruiterList : FALLBACK_RECRUITER_NAMES);
+        resolve();
+      });
+    });
+  }
+
+  // Rafraîchit la liste depuis N8N en arrière-plan (silencieux, sans bloquer l'UI) —
+  // met à jour le cache et réaffiche si la liste a été récupérée avec succès. Ainsi,
+  // ajouter/retirer un recruteur ne nécessite qu'une modification côté N8N, jamais
+  // de nouvelle version de l'extension.
+  async function refreshRecruiterList() {
+    const url = getN8nUrl("listRecruiters");
+    if (!url) return;
+    const user = els["n8n-user"].value;
+    const pass = els["n8n-pass"].value;
+    const headers = { "Content-Type": "application/json" };
+    if (user || pass) headers["Authorization"] = "Basic " + btoa(`${user}:${pass}`);
+
+    chrome.runtime.sendMessage({ type: "N8N_CALL", url, headers, body: {} }, response => {
+      if (!response || !response.ok) return;
+      try {
+        const parsed = JSON.parse(response.text);
+        if (Array.isArray(parsed.recruiters) && parsed.recruiters.length) {
+          chrome.storage.local.set({ cachedRecruiterList: parsed.recruiters });
+          renderRecruiterOptions(parsed.recruiters);
+        }
+      } catch (e) {
+        // Liste inchangée en cas de réponse invalide — on garde le cache/fallback affiché.
+      }
+    });
+  }
+
+  function loadSettings() {
+    return new Promise(resolve => {
+      chrome.storage.local.get(
+        ["n8nUrlCheck", "n8nUrlCreateOnly", "n8nUrlCreateContact", "n8nUrlContactExisting", "n8nUrlListRecruiters", "n8nUser", "n8nPass", "recruiterName"],
+        settings => {
+          els["n8n-url-check"].value = settings.n8nUrlCheck || DEFAULTS.n8nUrlCheck;
+          els["n8n-url-create-only"].value = settings.n8nUrlCreateOnly || DEFAULTS.n8nUrlCreateOnly;
+          els["n8n-url-create-contact"].value = settings.n8nUrlCreateContact || DEFAULTS.n8nUrlCreateContact;
+          els["n8n-url-contact-existing"].value = settings.n8nUrlContactExisting || DEFAULTS.n8nUrlContactExisting;
+          els["n8n-url-list-recruiters"].value = settings.n8nUrlListRecruiters || DEFAULTS.n8nUrlListRecruiters;
+          els["n8n-user"].value = settings.n8nUser || DEFAULTS.n8nUser;
+          els["n8n-pass"].value = settings.n8nPass || ""; // jamais de valeur par défaut ici
+          els["recruiter-select"].value = settings.recruiterName || "";
+          resolve();
+        }
+      );
+    });
+  }
+
+  function saveSettings() {
+    const settingsToSave = {
+      n8nUrlCheck: els["n8n-url-check"].value.trim(),
+      n8nUrlCreateOnly: els["n8n-url-create-only"].value.trim(),
+      n8nUrlCreateContact: els["n8n-url-create-contact"].value.trim(),
+      n8nUrlContactExisting: els["n8n-url-contact-existing"].value.trim(),
+      n8nUrlListRecruiters: els["n8n-url-list-recruiters"].value.trim(),
+      n8nUser: els["n8n-user"].value,
+      recruiterName: els["recruiter-select"].value
+    };
+    // Ne jamais écraser un mot de passe déjà enregistré par une valeur vide
+    // (ex: interférence d'un gestionnaire de mots de passe sur le champ).
+    if (els["n8n-pass"].value) settingsToSave.n8nPass = els["n8n-pass"].value;
+    chrome.storage.local.set(settingsToSave);
+  }
+
+  function getN8nUrl(webhookKey) {
+    const fieldId = {
+      check: "n8n-url-check",
+      createOnly: "n8n-url-create-only",
+      createContact: "n8n-url-create-contact",
+      contactExisting: "n8n-url-contact-existing",
+      listRecruiters: "n8n-url-list-recruiters"
+    }[webhookKey];
+    return els[fieldId].value.trim();
+  }
+
+  // --- Appels N8N via le service worker (évite les soucis de CSP sur la page LinkedIn) ---
+
+  function callN8n(webhookKey, body) {
+    return new Promise(resolve => {
+      const url = getN8nUrl(webhookKey);
+      if (!url) {
+        showN8nResult(`URL du webhook « ${webhookKey} » manquante dans les réglages ⚙️.`, true);
+        resolve(null);
+        return;
+      }
+      const user = els["n8n-user"].value;
+      const pass = els["n8n-pass"].value;
+      const headers = { "Content-Type": "application/json" };
+      if (user || pass) headers["Authorization"] = "Basic " + btoa(`${user}:${pass}`);
+
+      const bodyWithRecruiter = { ...body, recruiterName: els["recruiter-select"].value };
+
+      showN8nResult("Envoi en cours...", false);
+      chrome.runtime.sendMessage({ type: "N8N_CALL", url, headers, body: bodyWithRecruiter }, response => {
+        if (!response) {
+          showN8nResult("Erreur : pas de réponse de l'extension.", true);
+          resolve(null);
+          return;
+        }
+        showN8nResult(`HTTP ${response.status}\n${response.text}`, !response.ok);
+        if (!response.ok) {
+          resolve(null);
+          return;
+        }
+        try {
+          resolve(JSON.parse(response.text));
+        } catch (e) {
+          showN8nResult(`Réponse non-JSON reçue :\n${response.text}`, true);
+          resolve(null);
+        }
+      });
+    });
+  }
+
+  function showN8nResult(text, isError) {
+    els["n8n-result"].textContent = text;
+    els["n8n-result"].classList.remove("hidden");
+    els["n8n-result"].classList.toggle("error", !!isError);
+  }
+
+  // --- Détection du profil (on est déjà garantis sur linkedin.com/in/...) ---
+
+  function detectProfile() {
+    const h1 = document.querySelector("h1");
+    const fullName = h1 ? h1.innerText.trim() : document.title.split("|")[0].split(/\s[-–]\s/)[0].trim();
+    state.profile = { fullName, url: window.location.href };
+    els["profile-name"].textContent = fullName;
+    els["profile-url"].textContent = state.profile.url;
+  }
+
+  // --- Ouverture / fermeture du panneau ---
+
+  function toggleExpanded() {
+    state.expanded ? collapse() : expand();
+  }
+
+  function expand() {
+    state.expanded = true;
+    els["panel"].classList.remove("hidden");
+    els["bubble"].classList.add("is-expanded");
+  }
+
+  function collapse() {
+    state.expanded = false;
+    els["panel"].classList.add("hidden");
+    els["bubble"].classList.remove("is-expanded");
+    closeCompose();
+  }
+
+  // --- Étape 1 : vérifier si contactable ---
+
+  async function checkContactable() {
+    if (!state.profile) return;
+    els["checking-status"].classList.remove("hidden");
+    els["check-error"].classList.add("hidden");
+    const result = await callN8n("check", { fullName: state.profile.fullName, url: state.profile.url });
+    els["checking-status"].classList.add("hidden");
+    if (!result) {
+      els["check-error"].classList.remove("hidden");
+      return;
+    }
+    els["n8n-result"].classList.add("hidden");
+    state.checkResult = result;
+    renderResultPanel();
+  }
+
+  function renderResultPanel() {
+    const { status, candidateId, searchUrl } = state.checkResult;
+    const banner = els["status-banner"];
+
+    closeCompose();
+    hideActionResult();
+    els["result-panel"].classList.remove("hidden");
+    els["contactable-actions"].classList.add("hidden");
+    els["not-contactable-actions"].classList.add("hidden");
+    els["multiple-actions"].classList.add("hidden");
+    els["not-found-actions"].classList.add("hidden");
+    banner.className = "status-banner";
+    state.activeActionSection = null;
+
+    if (status === "contactable") {
+      banner.classList.add("status-go");
+      banner.textContent = "✅ Contactable";
+      els["contactable-link"].href = candidateBoondUrl(candidateId);
+      els["contactable-actions"].classList.remove("hidden");
+      state.activeActionSection = "contactable-actions";
+    } else if (status === "not_contactable") {
+      banner.classList.add("status-blocked");
+      banner.textContent = "⛔ Non contactable";
+      els["not-contactable-link"].href = candidateBoondUrl(candidateId);
+      els["not-contactable-actions"].classList.remove("hidden");
+    } else if (status === "multiple_matches") {
+      banner.classList.add("status-neutral");
+      banner.textContent = "🔍 Plusieurs correspondances dans Boond";
+      els["multiple-link"].href = searchUrl;
+      els["multiple-actions"].classList.remove("hidden");
+    } else if (status === "not_found") {
+      banner.classList.add("status-neutral");
+      banner.textContent = "❌ Absent de Boond";
+      els["not-found-actions"].classList.remove("hidden");
+      state.activeActionSection = "not-found-actions";
+    } else {
+      banner.classList.add("status-blocked");
+      banner.textContent = `Statut inconnu reçu de N8N : ${status}`;
+    }
+  }
+
+  function candidateBoondUrl(candidateId) {
+    return `https://ui.boondmanager.com/candidates/${candidateId}/overview`;
+  }
+
+  // --- Étape 2 : envoyer une action ---
+
+  function openCompose(webhookKey, extraBody, successMessage) {
+    state.pendingSend = { webhookKey, extraBody, successMessage };
+    els["message-textarea"].value = "";
+    els["message-textarea"].classList.remove("hidden");
+    els["send-message-btn"].classList.remove("hidden");
+    els["message-textarea"].focus();
+  }
+
+  function closeCompose() {
+    state.pendingSend = null;
+    els["message-textarea"].classList.add("hidden");
+    els["send-message-btn"].classList.add("hidden");
+    els["message-textarea"].value = "";
+  }
+
+  // --- Retour unique succès/erreur après envoi (remplace boutons + champ) ---
+
+  function showActionResult(success, message, link) {
+    if (state.activeActionSection) els[state.activeActionSection].classList.add("hidden");
+    closeCompose();
+    els["action-result"].classList.remove("hidden");
+    els["action-result-success"].classList.toggle("hidden", !success);
+    els["action-result-error"].classList.toggle("hidden", success);
+    if (success) {
+      els["action-result-message"].textContent = message || "✅ Terminé";
+      els["action-result-link"].href = link || "#";
+      els["action-result-link"].classList.toggle("hidden", !link);
+    }
+  }
+
+  function hideActionResult() {
+    els["action-result"].classList.add("hidden");
+    els["action-result-success"].classList.add("hidden");
+    els["action-result-error"].classList.add("hidden");
+  }
+
+  function retryAfterError() {
+    hideActionResult();
+    if (state.activeActionSection) els[state.activeActionSection].classList.remove("hidden");
+  }
+
+  async function sendAction(webhookKey, body, options = {}) {
+    const { successMessage = "✅ Terminé", triggerBtn = null, copyMessage = null } = options;
+    if (triggerBtn) triggerBtn.disabled = true;
+    const result = await callN8n(webhookKey, body);
+    if (!result) {
+      if (triggerBtn) triggerBtn.disabled = false;
+      showActionResult(false);
+      return;
+    }
+    els["n8n-result"].classList.add("hidden");
+
+    let finalMessage = successMessage;
+    if (copyMessage) {
+      try {
+        await navigator.clipboard.writeText(copyMessage);
+        finalMessage += " 📋 Message copié dans le presse-papier.";
+      } catch (e) {
+        // Le presse-papier a pu être refusé par le navigateur — on ignore silencieusement.
+      }
+    }
+
+    const candidateId = webhookKey === "contactExisting" ? body.candidateId : result.candidateId;
+    showActionResult(true, finalMessage, candidateId ? candidateBoondUrl(candidateId) : null);
+  }
+
+  function textToHtml(text) {
+    return text.replace(/\n/g, "<br/>");
+  }
+
+  // --- Bind ---
+
+  function bindEvents() {
+    els["close-btn"].addEventListener("click", collapse);
+    els["settings-btn"].addEventListener("click", () => {
+      els["settings"].classList.toggle("hidden");
+      els["body"].classList.toggle("hidden");
+    });
+    els["retry-check-btn"].addEventListener("click", checkContactable);
+
+    els["contact-custom-btn"].addEventListener("click", () => {
+      openCompose("contactExisting", { candidateId: state.checkResult.candidateId }, "✅ 1er contact envoyé !");
+    });
+
+    els["create-only-btn"].addEventListener("click", () => {
+      sendAction(
+        "createOnly",
+        { fullName: state.profile.fullName, url: state.profile.url },
+        { successMessage: "✅ Candidat ajouté sur Boond !", triggerBtn: els["create-only-btn"] }
+      );
+    });
+    els["create-custom-btn"].addEventListener("click", () => {
+      openCompose(
+        "createContact",
+        { fullName: state.profile.fullName, url: state.profile.url },
+        "✅ Candidat ajouté + 1er contact envoyé !"
+      );
+    });
+
+    els["action-retry-btn"].addEventListener("click", retryAfterError);
+
+    els["send-message-btn"].addEventListener("click", () => {
+      if (!els["message-textarea"].value.trim()) {
+        els["message-textarea"].focus();
+        return;
+      }
+      const plainText = els["message-textarea"].value;
+      const message = textToHtml(plainText);
+      sendAction(state.pendingSend.webhookKey, { ...state.pendingSend.extraBody, message }, {
+        successMessage: state.pendingSend.successMessage,
+        triggerBtn: els["send-message-btn"],
+        copyMessage: plainText
+      });
+    });
+
+    [
+      "n8n-url-check", "n8n-url-create-only", "n8n-url-create-contact", "n8n-url-contact-existing", "n8n-url-list-recruiters",
+      "n8n-user", "n8n-pass"
+    ].forEach(id => {
+      els[id].addEventListener("input", saveSettings);
+    });
+    els["recruiter-select"].addEventListener("change", saveSettings);
+  }
+})();
